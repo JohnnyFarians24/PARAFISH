@@ -1,0 +1,43 @@
+.dash-uploader-progress-bar {
+    position: relative;
+    background: #e0f7fa;
+    height: 32px !important;
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.dash-uploader-progress-bar .fish-loader {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 32px;
+    width: 32px;
+    z-index: 2;
+    animation: fish-move 2s linear infinite;
+}
+
+@keyframes fish-move {
+    0% { left: 0; }
+    100% { left: calc(100% - 32px); }
+}
+
+.dash-uploader-progress-bar::after {
+    content: "";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 32px;
+    width: 32px;
+    z-index: 2;
+    background-image: url('/assets/fish.gif');
+    background-size: contain;
+    background-repeat: no-repeat;
+    animation: fish-move 2s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes fish-move {
+    0% { left: 0; }
+    100% { left: calc(100% - 32px); }
+}

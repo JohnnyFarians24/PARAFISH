@@ -1,0 +1,152 @@
+# PARAFISH - Metabarcoding Analysis Platform
+
+PARAFISH is an interactive web platform built with Plotly Dash for the analysis of metabarcoding data from fish parasite samples. It provides a modular workflow from quality control to phylogenetic inference, integrating several bioinformatics tools and reference databases.
+
+---
+
+## Cross-Platform Notice
+
+**This application is designed to be cross-platform.**  
+Please ensure all required external tools (PEAR, FastQC, VSEARCH, MAFFT, FastTree, RAxML-NG, Trimmomatic, BOLDigger3) are installed for your operating system and available in your system PATH.  
+If you are using Windows, download the Windows versions of these tools and add their installation directories to your PATH environment variable.
+
+---
+
+## How to Run
+
+You only need this README and the `meta_platform.py` file to get started.  
+**No repository is required.**
+
+---
+
+## Requirements
+
+- **Operating System:**  
+  - Linux, MacOS, or Windows (with all tools installed and in PATH).
+  - Linux or WSL (Windows Subsystem for Linux) is recommended for easier installation and compatibility with external tools.
+
+- **Python:**  
+  - Version 3.8 or higher.
+
+- **Python Packages:**  
+  - Install with:
+    ```
+    pip install dash dash-bootstrap-components dash-uploader biopython pandas boldigger3
+    ```
+
+- **External Tools:**  
+  - [Java](https://www.java.com/) (for Trimmomatic)
+  - [Trimmomatic](http://www.usadellab.org/cms/?page=trimmomatic) (with adapters)
+  - [PEAR](https://cme.h-its.org/exelixis/web/software/pear/)
+  - [FastQC](https://www.bioinformatics.babraham.ac.uk/projects/fastqc/)
+  - [VSEARCH](https://github.com/torognes/vsearch)
+  - [MAFFT](https://mafft.cbrc.jp/alignment/software/)
+  - [FastTree](http://www.microbesonline.org/fasttree/)
+  - [RAxML-NG](https://github.com/amkozlov/raxml-ng)
+  - [BOLDigger3](https://github.com/DominikBuchner/BOLDigger3) (Python package, install with pip)
+
+---
+
+## Setup Steps
+
+1. **Install Python dependencies:**
+    ```
+    pip install dash dash-bootstrap-components dash-uploader biopython pandas boldigger3
+    ```
+
+2. **Install all external tools listed above.**
+    - Download and install each tool for your operating system.
+    - Make sure each tool is accessible in your system PATH.
+    - Place the Trimmomatic JAR and adapters in the expected directory (see variables at the top of `meta_platform.py`).
+    - If needed, update the paths to tools in `meta_platform.py`.
+
+3. **Prepare the directory structure:**
+    - The application will create an `uploads/` directory automatically.
+    - For best results, ensure the following structure:
+        ```
+        uploads/
+            logo.png                # (Optional) Logo for the app
+            fastqc_results/
+            pear_results/
+            vsearch_otus/
+            boldigger3_results/
+            phylo_intermediate/
+            raxmlng_results/
+        ```
+    - Place your input FASTQ/FASTA files in the `uploads/` directory or upload them via the web interface.
+
+---
+
+## Usage
+
+1. **Start the Application:**
+    ```
+    python meta_platform.py
+    ```
+
+2. **Access the Web Interface:**
+    - Open your browser and go to: [http://127.0.0.1:8050](http://127.0.0.1:8050)
+
+3. **Workflow:**
+    - Select the step where your data is ready (e.g., start from Quality Control or Preprocessing).
+    - Upload your files as prompted.
+    - Run each step and download/view the outputs and logs.
+    - Follow the workflow through to phylogenetic analysis.
+
+---
+
+## Example Input
+
+- Use your own paired-end FASTQ files (e.g., `OF.216F.i.raw_1.fastq` and `OF.216F.i.raw_2.fastq`).
+- For testing, include a small FASTQ file in the `uploads/` directory or upload via the interface.
+
+---
+
+## Notes
+
+- **Missing Features:**  
+  - DADA2, Kraken2, and additional reference databases are planned for future updates.
+
+- **Troubleshooting:**  
+  - Ensure all external tools are installed and accessible.
+  - Check the logs and error messages in the web interface for debugging.
+
+---
+
+## Setup: Databases
+
+This repository expects reference databases to be available under the `data/dbs` tree by default. For portability across platforms, the Docker Compose file mounts paths using the `DB_ROOT`, `RUNS_DIR`, and `CONFIG_DIR` environment variables (see `docker-compose.yml`).
+
+- Copy the example environment file before starting (creates defaults used by Docker Compose):
+
+```
+cp .env.example .env
+```
+
+- Download reference databases (SILVA and PR2) into the default local location `./data/dbs` using the included helper script:
+
+```
+./scripts/setup_databases.sh ./data/dbs
+```
+
+The script will skip files that already exist. To download a BOLD fasta, set `BOLD_URL` in the environment or pass it when invoking the script:
+
+```
+BOLD_URL="https://example.org/bold.fasta.gz" ./scripts/setup_databases.sh ./data/dbs
+```
+
+After populating `./data/dbs`, start the app with Docker Compose:
+
+```
+docker compose up --build
+```
+
+
+
+
+
+
+
+
+
+

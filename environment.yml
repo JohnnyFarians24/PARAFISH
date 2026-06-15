@@ -1,0 +1,21 @@
+name: base
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.11
+  - pip
+  - fastqc=0.12.1
+  - trimmomatic=0.39
+  - mafft=7.526
+  - raxml-ng=1.2.2
+  - blast=2.15.0
+  - fasttree=2.1.11
+  - pear=0.9.11
+  - r-base=4.3.3
+  - bioconductor-dada2=1.30.0
+  - wget
+  - curl
+  - bsdtar

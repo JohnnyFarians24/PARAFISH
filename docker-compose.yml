@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  parafish:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: parafish:latest
+    container_name: parafish_app
+    ports:
+      - "8050:8050"
+    env_file:
+      - .env
+    volumes:
+      - ${DB_ROOT:-./data/dbs}/silva:/data/silva:ro
+      - ${DB_ROOT:-./data/dbs}/pr2:/data/pr2:ro
+      - ${DB_ROOT:-./data/dbs}/bold_db:/data/bold_db:ro
+      - ${DB_ROOT:-./data/dbs}/blast_db:/data/blast_db:ro
+      - ${RUNS_DIR:-./data/runs}:/data/runs:rw
+      - ${CONFIG_DIR:-./data/config}:/data/config:ro
+    restart: unless-stopped
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"

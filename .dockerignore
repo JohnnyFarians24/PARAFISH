@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite
+*.log
+uploads/
+projects/
+.venv/
+.env
+.git/
+.gitignore
+*.fasta
+*.fa
+*.fasta.gz
+*.fa.gz
