@@ -189,26 +189,10 @@ This is a known issue under active development. Check the browser console for er
 
 PARAFISH is under active development. The current release supports the full pipeline described above, with the following known limitations:
 
-- The Run Pipeline button may not advance correctly in some browser/session configurations (fix in progress)
 - BOLD parameter visibility in the UI has a CSS rendering issue (fix in progress)
 - Output visualisation within the app is not yet fully functional; outputs remain accessible as files in `RUNS_DIR`
-
-Contributions, bug reports, and feature requests are welcome via [GitHub Issues](https://github.com/JohnnyFarians24/PARAFISH/issues).
-
----
-
-## Citation
-
-If you use PARAFISH in your research, please cite this repository and the underlying tools (VSEARCH, SILVA, PR2, RAxML-NG, MAFFT) according to their respective publications.
-
----
-
-## License
-
-This project is currently unlicensed. Contact the author for usage permissions.
-
-
-
+- Custom database support is not yet available in this release
+- Not all pipeline outputs are currently visible within the app interface; full in-app result rendering is under development
 
 
 
