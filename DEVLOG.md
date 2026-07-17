@@ -1,5 +1,30 @@
 # DEVLOG
 
+## LIVING LIST — Eixo A sites pending an ASV golden (append as each page leaves selector callbacks behind)
+
+**What this is.** Every Eixo B page fixes the session-restore of its *selector-free*
+callbacks (provable against the OTU golden) and LEAVES its *selector-driven* callbacks —
+the ones whose correctness depends on the resolved feature set — because proving they
+reconstruct the RIGHT set is the "otu-hardcoded" Eixo A problem, unprovable without an ASV
+golden. Rather than hunt those sites page by page on the day the ASV golden lands, they are
+collected here as they are left behind, so that day is a harvest, not an excavation.
+
+**The unblock is a single event:** generate a complete ASV/DADA2 golden run (itself a
+viability question on the 2.8 GB box — if it will not run, that is a finding about the
+machine, not the code). Once it exists, every row below gets a golden-anchored check that
+fails on today's "otu" assumption and passes on the resolved set — all in one session.
+
+**Each row also still needs its Eixo B restore** (the `store-project` + `_resolve_output_dir`
+wiring), which was deferred WITH it rather than applied unproven — so the ASV session does
+both at once for these callbacks: session-restore and set-resolution, under one new golden.
+
+| left by | callback | reads | why deferred |
+|---|---|---|---|
+| Databases (page 2/4) | `_render_hits` | best-hits table, per selected set | table is per-set; `databases-feature-set` drives it — right-set proof needs ASV golden |
+| Databases (page 2/4) | `_render_consensus` | `taxonomy_consensus.csv`, per selected set | same: consensus is per-set, selector-driven |
+
+_(Analysis 3/4 will add its occupancy/rarefaction selector widgets here when it lands.)_
+
 ## 2026-07-17 — UI Eixo B, page 2/4: Databases reconstructs from disk — the selector-free tabs, kept clear of Eixo A.
 
 **Same class as Preprocess, wider surface.** The Databases render callbacks all read
