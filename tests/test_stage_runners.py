@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from analysis.dada2_runner import run_dada2
-from analysis.vsearch_runner import run_vsearch
+from analysis.vsearch_runner import run_vsearch_filter_sample, run_vsearch_pool_and_cluster
+from core.utils import taxonomy_fields_to_sintax
 from core.models import AnalysisBranch, AnalysisMode, Marker, PhyloMode, RunConfig, Sample, SamplePaths, StepOutput
 from core.validation import validate_fasta_headers
 from databases.taxonomy_runner import run_boldigger
@@ -68,37 +69,66 @@ class RunnerContractTests(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertIn("r1_trimmed", result.files)
 
-    def test_vsearch_fails_empty_otu(self):
+    def test_vsearch_filter_sample_tags_reads(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             sample = self._sample(temp_path)
-            config = RunConfig(run_id="run3", samples=[sample], branch=AnalysisBranch.VSEARCH, output_dir=temp_path / "out")
+            config = RunConfig(run_id="run3a", samples=[sample], branch=AnalysisBranch.VSEARCH, output_dir=temp_path / "out")
             assembled_path = temp_path / "assembled.fastq"
-            assembled_path.write_text("@r1\nACGT\n+\n!!!!\n", encoding="utf-8")
+            assembled_path.write_text("@r1\n" + "A" * 220 + "\n+\n" + ("!" * 220) + "\n", encoding="utf-8")
 
             def fake_run(command, capture_output, text, check):
                 del capture_output, text, check
                 joined = " ".join(str(arg) for arg in command)
-                if "--cluster_size" in joined:
-                    (temp_path / "out" / "otus.fasta").parent.mkdir(parents=True, exist_ok=True)
-                    (temp_path / "out" / "otus.fasta").write_text("", encoding="utf-8")
+                if "--fastq_filter" in joined:
+                    out_index = command.index("--fastaout") + 1
+                    Path(command[out_index]).write_text(">r1;sample=sample_001;\n" + "A" * 220 + "\n", encoding="utf-8")
                 return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
 
             with patch("analysis.vsearch_runner.subprocess.run", side_effect=fake_run):
-                result = run_vsearch(assembled_path, config, temp_path / "out")
+                result = run_vsearch_filter_sample(assembled_path, config, temp_path / "out" / "sample_001", "sample_001")
+
+            self.assertTrue(result.success)
+            self.assertIn("filtered_fasta", result.files)
+
+    def test_vsearch_pool_fails_empty_otu(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            config = RunConfig(run_id="run3b", samples=[], branch=AnalysisBranch.VSEARCH, output_dir=temp_path / "out")
+            filtered = temp_path / "sample_001_filtered.fasta"
+            filtered.write_text(">r1;sample=sample_001;\n" + "A" * 220 + "\n", encoding="utf-8")
+
+            def fake_run(command, capture_output, text, check):
+                del capture_output, text, check
+                return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+            with patch("analysis.vsearch_runner.subprocess.run", side_effect=fake_run):
+                result = run_vsearch_pool_and_cluster({"sample_001": filtered}, config, temp_path / "pool_out")
 
             self.assertFalse(result.success)
-            self.assertIn("Clustering produziu 0 OTUs", result.error_message)
+            self.assertIn("0 OTUs", result.error_message)
 
-    def test_dada2_fails_without_refdb(self):
+    def test_dada2_runs_without_refdb(self):
+        """No reference is needed to call ASVs — taxonomy comes from the shared stage.
+
+        Requiring ``ref_fasta`` up front is what made every DADA2 run die with
+        "DADA2 requires a reference FASTA database" before denoising a single read,
+        even though the R script has always handled its absence.
+        """
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             sample = self._sample(temp_path)
             config = RunConfig(run_id="run4", samples=[sample], branch=AnalysisBranch.DADA2, output_dir=temp_path / "out")
-            with self.assertRaises(RuntimeError):
-                run_dada2([sample], config)
+            self.assertIsNone(config.dada2_params.get("ref_fasta"))
+            # Must not raise. Whether R is installed decides success/failure here; the
+            # contract under test is only that the missing reference is not fatal.
+            result = run_dada2([sample], config)
+            self.assertNotIn("requires a reference", str(result.error_message or ""))
 
+    @patch("core.preflight.dada2_memory_shortfall", lambda *a, **k: None)
     def test_dada2_success_creates_outputs(self):
+        # The memory gate is asserted in test_partial_analysis; here it must not turn a
+        # contract test into something that passes or fails with the machine's free RAM.
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             sample = self._sample(temp_path, marker=Marker.SSU_18S)
@@ -159,6 +189,16 @@ class RunnerContractTests(unittest.TestCase):
             fasta.write_text(">Bad:header,1\nACGT\n", encoding="utf-8")
             errors = validate_fasta_headers(fasta)
             self.assertTrue(errors)
+
+    def test_taxonomy_fields_to_sintax(self):
+        result = taxonomy_fields_to_sintax(["Eukaryota", "Chordata", "Actinopteri"])
+        self.assertEqual(result, "d:Eukaryota,p:Chordata,c:Actinopteri")
+
+    def test_taxonomy_fields_to_sintax_extends_ranks_beyond_seven(self):
+        fields = [f"level{i}" for i in range(1, 9)]
+        result = taxonomy_fields_to_sintax(fields)
+        self.assertTrue(result.endswith("r8:level8"))
+        self.assertEqual(result.count(","), 7)
 
     def test_bold_skips_if_no_db(self):
         with tempfile.TemporaryDirectory() as temp_dir:
