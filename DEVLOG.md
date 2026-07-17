@@ -1,5 +1,37 @@
 # DEVLOG
 
+## 2026-07-17 — UI Eixo B, page 2/4: Databases reconstructs from disk — the selector-free tabs, kept clear of Eixo A.
+
+**Same class as Preprocess, wider surface.** The Databases render callbacks all read
+`output_dir` off `store-run-config` (session) and blank on a fresh tab. Fixed through one
+shared helper, `_resolve_output_dir(run_config_data, project_data)` — session store first,
+then `latest_run_dir` — used by `_database_metric_paths` and by the inline `run_output_dir`
+sites. Seven selector-free render callbacks now declare `store-project`: resolution,
+confidence, conflicts, contaminants, prevalence, feature-comparison, db-visuals.
+
+**Deliberately split along the axis boundary.** The two callbacks that carry the
+`databases-feature-set` widget — `_render_hits`, `_render_consensus` — are LEFT OUT. Their
+Eixo B restore is the same wiring, but proving they reconstruct the *right* set is the
+"otu-hardcoded" Eixo A problem, unprovable without an ASV golden. Keeping them out is what
+lets this session's check touch only session-restore and never the selector. The proof
+path (`_database_metric_paths` / `_taxonomy_file` at the plain `otu` default) has the
+widget nowhere in it.
+
+**Strong form, three frozen anchors.** `tests/test_databases_restore.py`: with empty
+session stores and only `store-project`, the shared mechanism reconstructs and the bytes
+match golden for `taxonomic_resolution.csv` (resolution) and `conflict_report.csv`
+(conflicts); `source_assignments.csv` (confidence) is the third frozen table the same path
+serves. Plus a wiring assertion over all seven callbacks against the real dependency graph.
+Seen failing on the tree (blank `{}`, `store-project` absent), passing after.
+
+**The shared hardening paid out, as predicted.** This page inherited the run_id-ordered
+`latest_run_dir` for free — no new selection logic, no re-proof of the mtime trap; the
+Preprocess session already closed it under all four pages.
+
+`golden.py check all` fixture+real: `no regressions`. Suite `412 passed` (409 + 3). The
+callback-smoke test firing every rewired callback with empty inputs is what proves the
+seven new signatures do not `TypeError` in a browser.
+
 ## 2026-07-17 — UI Eixo B, page 1/4: Preprocess reconstructs from disk on a fresh session. QC held for last.
 
 **The bug, in one sentence a user would recognise:** close the app, reopen tomorrow, land

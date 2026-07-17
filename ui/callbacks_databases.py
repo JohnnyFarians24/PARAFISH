@@ -20,7 +20,7 @@ from preprocess.cutadapt_runner import resolve_primers
 from ui.components.collapsible import details
 from ui.components.table import data_table
 from ui.pipeline_state import _normalize_store, get_stage_record, stage_ready, stage_status, utc_now_iso
-from ui.runtime_state import decode_upload_content, resolve_project_data, run_config_from_store, serialize_step_output
+from ui.runtime_state import decode_upload_content, latest_run_dir, resolve_project_data, run_config_from_store, serialize_step_output
 
 
 # Plain-language headers: "Best_Identity" is a column name, "% identidade" is what the
@@ -252,14 +252,30 @@ def _read_preview(path: str, max_rows: int = 200):
     return frame
 
 
-def _database_metric_paths(db_data, run_config_data) -> dict[str, str]:
+def _resolve_output_dir(run_config_data, project_data=None) -> str | None:
+    """The run's output directory, from the session store or reconstructed from disk.
+
+    ``run_config_data`` is per-session: a fresh tab or a restarted app has it empty, so
+    ``output_dir`` is gone even though the run is still on disk. Fall back to the project's
+    newest run (``latest_run_dir``, which now orders by run_id, not mtime) instead of
+    blanking the page — the disk path the Results page already takes. This is Eixo B only:
+    it resolves WHICH run, never which feature set.
+    """
+    output_dir = (run_config_data or {}).get("output_dir")
+    if output_dir:
+        return str(output_dir)
+    run_dir = latest_run_dir(project_data) if project_data else None
+    return str(run_dir) if run_dir else None
+
+
+def _database_metric_paths(db_data, run_config_data, project_data=None) -> dict[str, str]:
     """Locate the taxonomy tables the runner persisted."""
     record = _normalize_store(db_data)
     recorded = record.get("metrics_files") or {}
     paths = {key: value for key, value in recorded.items() if isinstance(value, str) and Path(value).exists()}
     if paths:
         return paths
-    output_dir = (run_config_data or {}).get("output_dir")
+    output_dir = _resolve_output_dir(run_config_data, project_data)
     if not output_dir:
         return {}
     from databases.database_metrics import database_metrics_paths
@@ -391,14 +407,15 @@ def register_callbacks(app: Any) -> None:
         Output("databases-feature-comparison", "children"),
         Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_feature_comparison(db_out, run_config_data):
+    def _render_feature_comparison(db_out, run_config_data, project_data):
         import pandas as pd
 
         db = _normalize_store(db_out)
         outputs = db.get("outputs") or {}
         comparison = outputs.get("feature_set_comparison") or {}
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
 
         summary_path = comparison.get("feature_set_summary_csv")
         taxa_path = comparison.get("feature_set_taxa_csv")
@@ -500,15 +517,16 @@ def register_callbacks(app: Any) -> None:
         Output("databases-resolution", "children"),
         Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_resolution(db_out, run_config_data):
+    def _render_resolution(db_out, run_config_data, project_data):
         import pandas as pd
 
         from ui.plots import taxonomic_resolution_figure, taxonomy_sunburst_figure
 
-        paths = _database_metric_paths(db_out, run_config_data)
+        paths = _database_metric_paths(db_out, run_config_data, project_data)
         db = _normalize_store(db_out)
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
         children = []
 
         if "resolution_csv" in paths:
@@ -550,14 +568,15 @@ def register_callbacks(app: Any) -> None:
         Output("databases-confidence", "children"),
         Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_confidence(db_out, run_config_data):
+    def _render_confidence(db_out, run_config_data, project_data):
         import pandas as pd
 
         from ui.plots import confidence_histogram_figure, reliability_figure
 
         db = _normalize_store(db_out)
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
         assignments_path = _taxonomy_file(db.get("outputs") or {}, run_output_dir, "source_assignments_csv", "source_assignments.csv")
         if not assignments_path:
             return html.Div("Run the Databases stage to see per-assignment confidence.", className="empty-state-sub")
@@ -603,12 +622,13 @@ def register_callbacks(app: Any) -> None:
         Output("databases-conflicts", "children"),
         Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_conflicts(db_out, run_config_data):
+    def _render_conflicts(db_out, run_config_data, project_data):
         import pandas as pd
 
         db = _normalize_store(db_out)
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
         path = _taxonomy_file(db.get("outputs") or {}, run_output_dir, "conflict_report_csv", "conflict_report.csv")
         if not path:
             return html.Div("Run the Databases stage to compare sources.", className="empty-state-sub")
@@ -643,13 +663,14 @@ def register_callbacks(app: Any) -> None:
         Output("databases-contaminants", "children"),
         Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_contaminants(db_out, run_config_data):
+    def _render_contaminants(db_out, run_config_data, project_data):
         import pandas as pd
 
         from ui.plots import contaminant_figure
 
-        paths = _database_metric_paths(db_out, run_config_data)
+        paths = _database_metric_paths(db_out, run_config_data, project_data)
         if "contaminants_csv" not in paths:
             return html.Div(
                 "No negative controls were marked. Tick 'Control' on the blank samples in the Samples table to "
@@ -705,13 +726,14 @@ def register_callbacks(app: Any) -> None:
         Output("databases-prevalence", "children"),
         Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_prevalence(db_out, run_config_data):
+    def _render_prevalence(db_out, run_config_data, project_data):
         import pandas as pd
 
         from ui.plots import prevalence_figure
 
-        paths = _database_metric_paths(db_out, run_config_data)
+        paths = _database_metric_paths(db_out, run_config_data, project_data)
         if "taxon_prevalence_csv" not in paths:
             return html.Div("Run the Databases stage to see per-taxon prevalence.", className="empty-state-sub")
         try:
@@ -869,15 +891,16 @@ def register_callbacks(app: Any) -> None:
         Input("store-databases-outputs", "data"),
         Input("store-analysis-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_db_visuals(db_out, analysis_out, run_config_data):
+    def _render_db_visuals(db_out, analysis_out, run_config_data, project_data):
         from analysis.community_analysis import bray_curtis_matrix, pcoa, sample_summary, taxa_composition
         from ui.callbacks_results import _find_abundance_matrix
         from ui.plots import beta_heatmap_figure, composition_figure, ordination_figure
 
         db = _normalize_store(db_out)
         analysis = _normalize_store(analysis_out)
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
 
         graph_config = {"displaylogo": False, "responsive": True}
         children: list = []
