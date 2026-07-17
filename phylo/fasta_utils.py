@@ -8,8 +8,13 @@ from typing import Dict
 VALID_IUPAC = set("ACGTRYSWKMBDHVN")
 
 
-def sanitize_fasta_for_phylo(fasta_path: Path, output_path: Path) -> Dict[str, str]:
-    """Rename headers to ASV IDs, remove short sequences, normalize bases."""
+def sanitize_fasta_for_phylo(fasta_path: Path, output_path: Path, prefix: str = "ASV") -> Dict[str, str]:
+    """Rename headers to short feature IDs, drop short sequences, normalize bases.
+
+    ``prefix`` should name what the features actually are: VSEARCH produces OTUs
+    (abundance-sorted clusters) and DADA2 produces ASVs (denoised variants). Calling
+    a cluster an ASV is not a cosmetic slip — they are different objects.
+    """
     mapping: Dict[str, str] = {}
     output_path.parent.mkdir(parents=True, exist_ok=True)
     current_header = None
@@ -26,7 +31,7 @@ def sanitize_fasta_for_phylo(fasta_path: Path, output_path: Path) -> Dict[str, s
             current_header = None
             current_sequence = []
             return
-        new_name = f"ASV{index}"
+        new_name = f"{prefix}{index}"
         mapping[new_name] = current_header
         handle.write(f">{new_name}\n{sequence}\n")
         index += 1

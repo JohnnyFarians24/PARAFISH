@@ -16,7 +16,9 @@ from phylo.fasta_utils import sanitize_fasta_for_phylo
 def run_mafft(fasta_path: Path, output_dir: Path, params: Dict) -> StepOutput:
     output_dir.mkdir(parents=True, exist_ok=True)
     sanitized = output_dir / "sanitized.fasta"
-    mapping = sanitize_fasta_for_phylo(fasta_path, sanitized)
+    # Name the tips after what they are: VSEARCH clusters are OTUs, DADA2 variants
+    # are ASVs. ``feature_prefix`` is set by the phylo runner from the analysis method.
+    mapping = sanitize_fasta_for_phylo(fasta_path, sanitized, prefix=str(params.get("feature_prefix") or "ASV"))
 
     # validate_fasta_headers returns a list of bad headers (truthy on errors)
     if validate_fasta_headers(sanitized):
@@ -31,31 +33,55 @@ def run_mafft(fasta_path: Path, output_dir: Path, params: Dict) -> StepOutput:
     log_path = output_dir / "mafft.log"
     reversed_csv = output_dir / "reversed_asvs.csv"
 
-    command = [MAFFT_PATH]
+    threads = str(params.get("threads", 8))
+    adjust = params.get("adjust_direction", True)
+
+    primary = [MAFFT_PATH]
     if params.get("mode", "auto") == "accurate":
-        command += ["--maxiterate", "1000"]
+        primary += ["--maxiterate", "1000"]
     else:
-        command += ["--auto"]
-    if params.get("adjust_direction", True):
-        command.append("--adjustdirection")
-    command += ["--thread", str(params.get("threads", 8)), str(sanitized)]
+        primary += ["--auto"]
+    if adjust:
+        primary.append("--adjustdirection")
+    primary += ["--thread", threads, str(sanitized)]
+
+    # Memory-frugal fallback: a single progressive pass without FFT uses far less
+    # RAM, so alignment still completes on small machines where --auto is
+    # OOM-killed (MAFFT then exits non-zero).
+    fallback = [MAFFT_PATH, "--retree", "1", "--nofft"]
+    if adjust:
+        fallback.append("--adjustdirection")
+    fallback += ["--thread", threads, str(sanitized)]
+
+    def _attempt(command):
+        return subprocess.run(command, capture_output=True, text=True, check=True)
 
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, check=True)
+        completed = _attempt(primary)
         aligned_fasta.write_text(completed.stdout or "", encoding="utf-8")
-        log_path.write_text(
-            (completed.stderr or "") + "\n" + (completed.stdout or ""),
-            encoding="utf-8",
-        )
-    except subprocess.CalledProcessError as exc:
-        log_path.write_text(str(exc), encoding="utf-8")
-        return StepOutput(
-            step_name="mafft",
-            success=False,
-            files={},
-            log=log_path,
-            error_message=f"MAFFT falhou: {exc}",
-        )
+        log_path.write_text((completed.stderr or "") + "\n" + (completed.stdout or ""), encoding="utf-8")
+    except subprocess.CalledProcessError as primary_exc:
+        try:
+            completed = _attempt(fallback)
+            aligned_fasta.write_text(completed.stdout or "", encoding="utf-8")
+            log_path.write_text(
+                "MAFFT --auto falhou (provavelmente falta de memoria); usada a estrategia "
+                "economica --retree 1 --nofft.\n\n" + (completed.stderr or "") + "\n" + (completed.stdout or ""),
+                encoding="utf-8",
+            )
+        except subprocess.CalledProcessError as fallback_exc:
+            log_path.write_text(
+                f"MAFFT falhou em ambas as estrategias.\nPrimaria: {primary_exc}\nEconomica: {fallback_exc}\n"
+                "Causa provavel: falta de memoria (RAM) para o numero de sequencias.",
+                encoding="utf-8",
+            )
+            return StepOutput(
+                step_name="mafft",
+                success=False,
+                files={},
+                log=log_path,
+                error_message="MAFFT falhou (provavelmente falta de memoria). Ver phylo/mafft/mafft.log.",
+            )
 
     # write mapping of ASV -> original header
     with reversed_csv.open("w", encoding="utf-8", newline="") as f:

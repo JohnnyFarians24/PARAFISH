@@ -85,6 +85,13 @@ def run_trimmomatic(sample: Sample, config: RunConfig) -> StepOutput:
             "-jar",
             TRIMMOMATIC_JAR_PATH,
             "PE",
+            # Force Phred+33. Trimmomatic otherwise sniffs the encoding from the first
+            # reads, and a file whose quality line is uniform (e.g. all '?') sits in the
+            # ambiguous band between Phred+33 and +64, so detection fails with
+            # "Unable to detect quality encoding" and the whole sample is lost. Every
+            # Illumina run since ~2011 is Phred+33, so asserting it is safe and removes a
+            # class of spurious failures that have nothing to do with the data's quality.
+            "-phred33",
             str(sample.paths.r1),
             str(sample.paths.r2),
             str(r1_out),
@@ -105,6 +112,7 @@ def run_trimmomatic(sample: Sample, config: RunConfig) -> StepOutput:
             "-jar",
             TRIMMOMATIC_JAR_PATH,
             "SE",
+            "-phred33",  # see the PE branch: avoids "Unable to detect quality encoding"
             str(sample.paths.r1),
             str(r1_out),
             f"ILLUMINACLIP:{adapter_path}:2:30:10",

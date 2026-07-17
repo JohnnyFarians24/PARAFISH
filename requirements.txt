@@ -6,3 +6,10 @@ openpyxl>=3.1.0
 boldigger3>=3.0.0,<4.0.0
 python-dotenv>=1.0.0
 pydantic>=2.7.0
+plotly>=5.20.0
+# Alpha/beta diversity, rarefaction, PCoA, PERMANOVA, Faith's PD and UniFrac.
+# Note: since 0.7 the phylogenetic metrics take `taxa=`, not the old `otu_ids=`.
+scikit-bio>=0.7.0
+# PCR-primer removal in Preprocess (sequence-aware, IUPAC wildcards). The pipeline
+# degrades gracefully if absent, but proper primer removal needs it.
+cutadapt>=4.0
