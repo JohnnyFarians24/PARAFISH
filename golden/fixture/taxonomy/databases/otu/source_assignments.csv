@@ -1,0 +1,13 @@
+ASV_ID,source,rank,taxon,identity,coverage,confidence,reliability
+OTU1,SILVA,species,Gadus_morhua_(Atlantic_cod),,,1.00,high
+OTU1,PR2,kingdom,Eukaryota,,,1.00,high
+OTU1,NCBI,species,Gadus morhua,100.000,100,717,high
+OTU2,SILVA,species,Gadus_morhua_(Atlantic_cod),,,1.00,high
+OTU2,PR2,kingdom,Eukaryota,,,1.00,high
+OTU2,NCBI,species,Gadus morhua,96.667,100,645,low
+OTU3,SILVA,species,Gadus_morhua_(Atlantic_cod),,,1.00,high
+OTU3,PR2,kingdom,Eukaryota,,,1.00,high
+OTU3,NCBI,species,Aspergillus flavus,95.918,100,628,low
+OTU4,SILVA,species,Gadus_morhua_(Atlantic_cod),,,1.00,high
+OTU4,PR2,kingdom,Eukaryota,,,1.00,high
+OTU4,NCBI,species,Melanogrammus aeglefinus,99.638,84,505,high

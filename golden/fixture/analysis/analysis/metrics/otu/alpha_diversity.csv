@@ -1,0 +1,3 @@
+sample,reads,observed,chao1,shannon,simpson,pielou,hill_q0,hill_q1,hill_q2
+aptl64b_02,3969,4,4.0,0.018,0.0045,0.013,4.0,1.018,1.005
+aptl64f_01,3969,2,2.0,0.0023,0.0005,0.0034,2.0,1.002,1.001

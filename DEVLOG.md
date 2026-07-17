@@ -1,0 +1,1421 @@
+# DEVLOG
+
+## 2026-07-17 — Pre-commit audit: a 2.3 GB near-miss, and the commit order is inverted by the import graph
+
+**Nothing committed. The audit found one thing that had to be fixed before any `git add`,
+and three entanglements that make the planned commit sequence impossible as specified.**
+
+### Clean
+
+No credentials (every hit is a reference to an env var, a test placeholder, or docs — `.env`
+is ignored and stays ignored). No absolute paths, no username, no personal email anywhere in
+the candidate tree. `runs/`, `data/`, `fixtures/`, `golden_baseline/` all correctly ignored.
+
+### The near-miss: `git add .` would have staged 2.3 GB
+
+    databases/bold/BOLD_Public.03-Jul-2026.parquet   2.3 GB   matched by NO pattern
+    pr2_version_5.1.1_SSU_mothur.tax                  32 MB   `.tax.gz` was ignored; `.tax` was not
+    databases/ncbi/lineage_cache.json                 12 KB   a rebuildable cache
+
+GitHub refuses files over 100 MB, and **no later commit undoes this** — git history is
+permanent. Now ignored (`*.tax`, `*.parquet`, `*.snappy`, `databases/bold/`,
+`databases/ncbi/`); verified the four `databases/*.py` modules stay visible. **2.3 GB → 872 KB.**
+
+**The root cause is structural and is on the list, not fixed here: `databases/` is both a
+Python package and the default DB_ROOT**, so multi-GB downloads land inside the source tree.
+Code and data sharing one directory is how a single missed pattern becomes a 2.3 GB mistake.
+
+### The commit order is inverted, and it is the architecture saying so
+
+The planned sequence was machinery → pipeline layers → UI fix → rest of UI. Tested rather
+than assumed:
+
+1. **`scripts/run_pipeline.py:121-122` imports `ui.callbacks_progress` and `ui.runtime_state`.**
+   The runner that produces every golden **is** the UI. So "machinery first, UI last" cannot
+   work: no commit before the UI can execute a run, and therefore **no pipeline-layer commit
+   is provable by its own golden until the UI lands.** This dependency is deliberate and
+   correct — *"a runner that took its own path could pass while the app stayed broken"* — so
+   the ordering must change, not the code.
+
+2. **`scripts/verify.py:455` imports `analysis.results_summary`** (check (g)). It does not
+   degrade — proven by hiding the module:
+
+       ModuleNotFoundError: No module named 'analysis.results_summary'
+
+   verify.py **crashes**, so checks (a)-(f) die with it. The instrument is broken until the
+   UI-fix commit.
+
+3. **The pipeline layers share files and cannot be split by stage.**
+   `ui/callbacks_progress.py` drives all of them in one file (cutadapt/trimmomatic →
+   preprocess, vsearch → analysis, taxonomy_runner + build_database_metrics → taxonomy/export,
+   phylo_runner → phylo). `databases/database_metrics.py` serves taxonomy
+   (`taxonomic_resolution`, `taxon_prevalence`) **and** export (`write_biom`,
+   `write_phyloseq_bundle`, `taxa_tables_all_ranks`). One commit per pipeline layer would
+   mean splitting files, not selecting them.
+
+**Corrected order, following the import graph rather than the narrative:**
+
+    1. .gitignore hygiene            — tiny, protects every later commit
+    2. scripts/golden.py + golden/fixture/  — no project imports; diffs a run dir standalone
+    3. core/ + the stage runners     — by directory (they cannot split by stage)
+    4. ui/ + app.py + run_pipeline.py — the commit where a golden becomes reproducible
+    5. verify.py + results_summary + tests/ — (g) imports cleanly; everything now provable
+
+### Open, and blocking a PUSH rather than a commit
+
+`origin` is **https://github.com/JohnnyFarians24/PARAFISH.git** and its visibility could not
+be determined here (`gh` unauthenticated). `golden/fixture/` carries the supervisors' data:
+two sample ids (`aptl64b_02`, `aptl64f_01`), per-sample read counts, and the genera *Gadus*,
+*Aspergillus*, *Melanogrammus*. That is small and not human data, but **it is theirs, and
+publishing is not mine to decide.** Committing is local and reversible; pushing to a public
+remote is neither. Resolve visibility + the supervisors' consent before any push.
+
+## 2026-07-17 — Making the contract travel: the fixture IS deterministic, and the repo is the real hole
+
+**The task was "confirm the fixture golden is byte-stable, then commit it so the checks run
+on a clean clone". The first half is now proven. The second half turned out to rest on a
+premise that is false, and that is the finding.**
+
+### The fixture is byte-stable — proven, not assumed
+
+An **independent re-run** of the fixture pipeline, diffed against the frozen golden:
+
+    preprocess  identical
+    analysis    identical
+    taxonomy    identical      <- --randseed 42 holds across runs, as designed
+    export      identical
+
+The taxonomy being byte-identical on a second run is the SINTAX fix doing exactly what it
+was for. Two things had to be separated first, and both were worth the run:
+
+**1. A false alarm that was really a missing recipe.** The first re-run showed four taxonomy
+files "changed". They had not: every biological number was identical (OTU1 *Gadus* 100.000,
+OTU2 96.667, OTU3 *Aspergillus* 95.918, OTU4 *Melanogrammus* 99.638; `Consensus_Sources`
+`NCBI|PR2|SILVA` throughout). The only delta was **BOLD's presence** — the golden was frozen
+from a `silva,pr2,ncbi` run and the re-run used `run_pipeline.py`'s default
+`silva,pr2,bold,ncbi,custom`. Re-running with the golden's own sources: byte-identical.
+
+**So: `progress.json` does not record `run_config` at all, and `PROVENANCE.txt` records only
+stage/dataset/source.** The run does not record how it was made, and the golden freezes an
+output whose recipe is nowhere. A config difference is therefore indistinguishable from a
+regression, and nobody — including us — can know which invocation reproduces a frozen run.
+**Open item, and it is the next one:** the run should write its own `run_config.json`, and
+`golden.py freeze` should carry it into `PROVENANCE.txt`.
+
+**2. A real non-determinism: `table.biom` embeds a wall-clock timestamp.**
+
+    frozen : "date": "2026-07-17T08:24:45Z"
+    re-run : "date": "2026-07-17T09:51:33Z"
+
+Its checksum could therefore **never** pass a re-run. This is the same defect
+`conflict_report.csv` had — *a file that changes without its content changing cannot be
+diffed, so a real change hides in the churn* — and it survived because **Phase 4's two-run
+proof covered the nine COPIED contract files; `table.biom` is checksummed, not copied, and
+was never in that diff.** The net had a hole exactly where it stopped copying.
+
+**Fixed in the checker, not the writer, and the asymmetry is deliberate.** `conflict_report`'s
+ordering was meaningless, so the writer was fixed. The BIOM date is *true*, and downstream
+tools expect it; making an output lie about when it was written to keep a checker quiet is
+the wrong trade for a platform whose argument is that its outputs are honest. So `golden.py`
+hashes BIOM **content** (the `date` field dropped, keys canonicalised) and the field stays in
+the file. Seen to ignore only what it claims to:
+
+    date changed        -> IGNORED (same digest)
+    a count 3960->3961  -> CAUGHT
+    a taxon fabricated  -> CAUGHT
+
+### The real hole: the code is not in the repo either
+
+`golden/` being gitignored was the *visible* half. Checking what a clone would actually get:
+
+    UNTRACKED  scripts/golden.py            <- the freeze/check machinery: the whole net
+    UNTRACKED  scripts/verify.py            <- all seven checks
+    UNTRACKED  analysis/results_summary.py  <- the module this session fixed
+    UNTRACKED  tests/test_results_summary.py
+    UNTRACKED  databases/database_metrics.py
+    UNTRACKED  ui/feature_sets.py           <- the resolver that was right all along
+    UNTRACKED  core/run_registry.py
+    ... 55 untracked .py files, 49 modified
+
+**The last commit is the initial import.** So committing `golden/fixture/` alone would ship a
+contract for code that is not there: a clean clone gets neither the golden, nor `verify.py`,
+nor `golden.py`, nor the module under test. "The checks run on a clean clone" was blocked by
+something one layer under the golden, and the gitignore was a symptom.
+
+This is the same shape as every other finding in this log — the visible defect was a symptom
+of one nobody had looked for — and it is the one that matters most, because **reproducible on
+clone was the project's goal.** Ten sessions of making the numbers trustworthy do not survive
+a clone that contains none of the instruments that made them so.
+
+`.gitignore` now tracks `golden/fixture/` (176 KB, 26 files, no absolute paths, no dates, no
+tool versions, no hostname — verified) and still ignores `golden/real/` (size, and it is real
+data). That is necessary and nowhere near sufficient. **What to commit, and in what order, is
+a decision left open rather than taken unilaterally:** 55 untracked files spanning work this
+log has not audited is not a commit to make while nobody is looking.
+
+State: verify **7/7** real · **7/7** fixture · golden **no regressions** on both datasets *and*
+on an independent re-run · **403 pass, 1 skipped** (`duckdb` absent, pre-existing).
+
+## 2026-07-17 — UI session 2: check (g) seen failing, then the layout migration. Phylo held back.
+
+**The gate, executed in order.** Check **(g) the Results page reads this run** was written
+first and **seen failing on the frozen real golden run**, before a line of the fix:
+
+    FAIL  (g) the Results page reads this run
+          - clustered_read_total -> None, chimera_stats says 154223
+          - species_classified_total -> None, taxonomic_resolution says 12
+          - dashboard[aptl64b_02].richness -> 0, alpha_diversity says 9
+          - dashboard[aptl64f_01].richness -> 0, alpha_diversity says 2
+          - dashboard pct_species is 0 for every sample, yet 12 reads reached species
+
+    6 passed · 1 failed
+
+(g) is deliberately unlike (a)-(f): they compare two files, it compares **a file to the code
+that reads it** — the gap where a correct pipeline and a blank screen coexist.
+
+**The migration.** `database_metrics_paths(databases_dir, feature_set="otu")` now mirrors
+`analysis_metrics_paths` exactly — per-set dir first, flat second — and a new
+`taxonomy_table_path` gives non-UI readers the on-disk half of what
+`ui.feature_sets.taxonomy_file` does for the UI (`analysis/` must not import `ui/`). The six
+`results_summary` paths and the three `callbacks_databases` sites now route through them.
+`callbacks_databases.py:265` needed **no change at the call site**: it always passed the
+stage dir, and the resolver was the thing that did not know about feature sets.
+
+**Nothing bled backwards** — the risk of "unifying" a resolver five callers already used
+correctly:
+
+    golden check all --dataset real     preprocess · analysis · taxonomy · export   no regressions
+    golden check all --dataset fixture  preprocess · analysis · taxonomy · export   no regressions
+    verify real 7/7 · verify fixture 7/7 · 402 pass, 1 skipped
+
+(The 1 skip is `duckdb` missing in this env, pre-existing and unrelated.)
+
+**The tests were the other half of the bug, and fixing the code did not fix them.** After
+the migration `tests/test_results_summary.py` still passed — *because the resolvers fall
+back to flat, so the lying fixture kept working*. The test would have passed with or without
+the fix: **zero power to detect the defect it was meant to cover.** Fixed by moving the
+fixture to the layout the pipeline actually writes, and by adding `GoldenLayoutTests`, which
+takes its tree from `golden/` instead of from the test author's typing:
+
+- `test_reader_sees_the_frozen_run` — the reader must return the frozen numbers.
+- `test_the_fixture_layout_matches_the_pipeline_layout` — the hand-written fixture is pinned
+  against golden, so it cannot drift back into agreeing only with its author.
+
+**Both were seen failing before being accepted**, per the rule:
+
+    revert the migration  -> FAIL: AssertionError: None != 154223
+    flatten the fixture   -> FAIL: fixture writes taxonomy_consensus.csv at
+                             'databases/taxonomy_consensus.csv', the pipeline writes it at
+                             ['databases/otu/taxonomy_consensus.csv']
+
+**A limitation, named: `golden/` is gitignored.** The contract is not in the repo — it is
+real run output and lives only on this machine. So `GoldenLayoutTests` **skips** in a fresh
+clone or in CI, and a skip there is *not* a pass: it means the contract went unchecked. The
+suite that runs everywhere is still the one that can only prove the code agrees with itself.
+How the golden contract travels (a committed miniature? checksums? a CI fixture derived from
+golden?) is now an open item, and it is the difference between this discipline holding for
+the project and holding only on this laptop.
+
+**Phylo: held back, and this is an ordering rule, not a preference.**
+
+> **No page is assessed before its stage has a golden.** The step before reading the phylo
+> callbacks is to produce a run that exercises the stage and freeze it.
+
+`callbacks_phylo` has the same flat-vs-per-set shape (`:39`, `:49`) and was **left untouched**.
+It looks identical to what was just fixed, and "structurally identical, therefore the same"
+is precisely the inference that produced the 401 passing tests — the fixture represented the
+disk *because it ought to*. A reader without a contract is an unverified reader, however much
+it resembles a verified one. If the pipeline cannot produce a real phylo run on this data,
+that is a finding **about the stage**, and better learned now than halfway through assessing
+its page.
+
+## 2026-07-17 — PRINCIPLE: a hand-written fixture can only prove the code agrees with itself
+
+**This is a rule, not the write-up of one incident.** It is filed here because it governs
+every one of the ~93 callbacks still to be assessed, and because the incident that produced
+it is the most dangerous class of defect this codebase has produced so far.
+
+> **A test whose fixture is built by hand by the test's author proves only that the code
+> agrees with itself. A contract test anchors on the real artifact the previous stage
+> produces.**
+
+The Results page read `databases/taxonomy_consensus.csv`. The pipeline writes
+`databases/otu/taxonomy_consensus.csv`. `tests/test_results_summary.py::_run_tree` builds
+its fixture at **the path the code expects** — so the test and the code shared one false
+belief about the layout and agreed with each other perfectly. **401 tests passed while the
+page was blank.**
+
+**Why this is worse than having no tests at all.** No tests is honest: you know that you do
+not know. A test whose fixture is invented by the author of the test is a lie with a seal of
+approval — the instrument you consult to find out whether something is broken is actively
+confirming that the broken thing is intact. The suite was not wrong by accident; it was
+structurally incapable of being right, because it never touched anything the pipeline wrote.
+
+**The asymmetry that makes golden files the contract:** a hand-written fixture *can* share
+the code's hallucination — the same person, holding the same wrong belief, wrote both. The
+pipeline's real output *cannot*, because it was not written by whoever wrote the reader.
+That is the entire argument, and it is the tests' version of Rule 2 (*coherence is not
+quality*): a fixture and a reader agreeing proves coherence between two things that came
+from one head.
+
+**Operationally, for the rest of the UI work:** a check that reads a path or a key must get
+it from `golden/`, not from a tree the check itself mkdir'd. Where a fixture is genuinely
+needed (speed, edge cases), it must be **derived from a golden artifact**, never typed from
+the reader's expectations.
+
+## 2026-07-17 — UI Phase, session 1 addendum: the layout drift is systemic, and the store is what hides it
+
+**The question: are the six broken paths specific to Results, or the same flat-vs-feature-set
+drift elsewhere?** Swept every stage-directory path construction in `ui/`, `analysis/`,
+`databases/`, `phylo/`, `core/`. **It is systemic — one incomplete migration, not a Results
+bug.** The pipeline moved to one directory per feature set (`databases/<set>/`,
+`phylo/<set>/`, `analysis/metrics/<set>/`); the readers did not all follow.
+
+**Migrated, and correct** — `ui/feature_sets.taxonomy_file`, `analysis_metrics_paths`,
+`callbacks_ordination` (:65-67, :91, :146-148), `callbacks_results_summary` (:353-355,
+:535-537, :544, :556), `callbacks_analysis` (:62, :103). All resolve per-set first, flat
+second.
+
+**Left behind, flat only** — ~11 read sites across three modules:
+
+| module | sites | store primary? | observed |
+|---|---|---|---|
+| `analysis/results_summary.py` | 6 (:88 :104 :129 :162 :213 :259) | **none** | **blank on golden, proven** |
+| `ui/callbacks_databases.py` | 3 (:129 :265 :275) | yes, correct | latent |
+| `ui/callbacks_phylo.py` | 2 (:39 :49) | yes, correct | latent, **unproven** |
+
+**The shape of the answer is the useful part: the blast radius is decided by whether a store
+masks the fallback.** `callbacks_databases` and `callbacks_phylo` are structurally identical
+— read `metrics_files` off the stage record first (which the pipeline writes correctly),
+fall back to a flat disk path (which is wrong). `results_summary.py` is **the only consumer
+that takes `output_dir` and goes straight to disk with no store to mask it.** That is the
+entire reason Results is the blank page and the others are not. Same bug, different exposure.
+
+**So "latent" must not be read as "safe".** The masking store is a `session` store, and
+`core/run_registry.py` exists precisely because those stores go empty on restart, in a new
+tab, and on arriving at a page without having watched the run go by (DEVLOG 2026-07-14, T3).
+**Every masked site becomes a blank site in exactly the scenario the store is known to fail
+in.** The mask is made of the thing already documented as evaporating. These are not three
+severities; they are one bug and an F5.
+
+**A hole in the net, named rather than assumed.** The phylo claim above is **by construction,
+not by evidence**: the writer is `output_dir / "phylo" / key` (`callbacks_progress.py:830`,
+`:848`), the reader is `phylo/metrics/`. It could not be tested, because **the golden covers
+preprocess/analysis/taxonomy/export and not phylo** — the real golden run has no phylo stage,
+and the only runs on disk carrying `phylo/` predate feature sets and therefore have the flat
+layout the reader expects. So phylo has **no contract at all**, and the check that would prove
+this cannot be written against today's golden. That gap is now the thing to fix before phylo
+is assessed, and it is recorded as unproven rather than counted as a finding.
+
+**Consequence for the plan:** the fix is one migration applied to ~11 sites through resolvers
+that already exist and are already correct in five places — not four page-by-page repairs. But
+the sequence is unchanged and the gate holds: **a golden-anchored check, seen failing on
+today's tree for the documented reason, before any path is touched.**
+
+## 2026-07-17 — Why the golden net exists: the unseeded SINTAX, restated as method
+
+The previous entry files "SINTAX was unseeded" under a list of fixes. That is the wrong
+shelf, and the misfiling matters more than the fix. **This is not a bug we corrected; it
+is the reason the method exists**, and it is recorded here as such so that nobody later
+reads the golden discipline as ceremony.
+
+What was actually true before `--randseed 42`: **the classifications were not results, they
+were samples from a distribution.** The same reads, against the same reference, on the same
+machine, produced different numbers every run. Those bootstraps set `Reliability` and are
+compared against `--sintax_cutoff`, so a taxon sitting near the threshold could be **called
+on one run and absent on the next, from byte-identical data**. Not a rounding artefact in a
+report — a taxon present or absent. On a parasite-detection platform, that is the finding
+itself changing its mind.
+
+**Every way we had of looking would have missed it, and this is the whole point:**
+
+- *Reading the code* could not see it. The code was correct in the only sense reading can
+  check: it did what it said it did. `--randseed` was not passed wrong, it was not passed.
+- *Unit tests* could not see it. There is no assertion to write. Each run's output was
+  individually well-formed, internally coherent, and plausible.
+- *A single run* could not see it — and this is the trap. Every run looked **perfectly
+  good**. The defect had no appearance. It existed only in the relationship *between* two
+  runs, which is a place no individual run can look.
+
+It took **two runs over identical input and a byte-level diff** — 0.99 against 0.98, one
+cell, one CSV. Nothing cheaper would have worked, because nothing cheaper compares a run to
+another run.
+
+**The counterfactual, stated plainly.** Had this project closed on the strength of code
+review, passing tests, and runs that looked right — which is what closing normally means —
+we would have handed the supervisors a platform whose numbers **nobody could reproduce, us
+included**. A reviewer re-running it would get different taxa near the cutoff and would be
+right to conclude the platform was unsound. The golden net is what stands between a
+scientific instrument and a generator of plausible numbers, and the distinction is invisible
+from inside any single run. That is the cost it saved; that is why the discipline is not
+optional.
+
+The corollary now governs the UI work: **a check you have never seen fail is not a check,
+it is a hope.**
+
+## 2026-07-17 — UI Phase, session 1: the data contract, and the Results page reads a layout that does not exist
+
+**Not "score the page" — map the contract.** The recurring failure mode of this platform is
+store/format mismatch: one module writes a shape, another reads a different one, `dict.get`
+returns nothing, and the miss is silent. That is exactly what `class_` vs `class` was
+(DEVLOG 2026-07-16), and the golden files are now a frozen contract, so the first question
+is not "is the dropdown pretty" but **"do the paths and keys the UI reads exist in the
+golden?"** They largely do not.
+
+**The finding, by evidence rather than by reading.** `analysis/results_summary.py` run
+against the frozen real golden run (`runs/_real/current`), which classified 9/9 OTUs with a
+full Linnean backbone:
+
+    clustered_read_total     -> None
+    species_classified_total -> None
+    sankey stages            -> ['Raw', 'Trimmed', 'Merged']        <- Clustered/Classified absent
+    dashboard aptl64b_02     -> richness 0, shannon 0.0, pct_species 0.0
+    dashboard aptl64f_01     -> richness 0, shannon 0.0, pct_species 0.0
+    target 'Gadus morhua'    -> detected_in '—', prevalence None, reliability '—'
+
+**Every number Phases 3 and 4 fixed is missing from the Results page**, and the cod the
+pipeline correctly identified reads as *not detected*. The back end is right and the user
+sees nothing — the exact way a working platform is judged broken.
+
+**Root cause: the feature-set directory level.** The pipeline writes one directory per
+feature set (`callbacks_progress.py:730` -> `databases/<set>/`,
+`analysis_metrics.py:576` -> `analysis/metrics/<set>/`). `results_summary.py` reads the flat
+pre-feature-set layout. Six of its eight paths cannot exist:
+
+| pipeline writes (verified in golden) | `results_summary.py` reads | |
+|---|---|---|
+| `preprocess/metrics/read_tracking.csv` | same | ✓ |
+| `analysis/otu_matrix.csv` | same | ✓ |
+| `analysis/metrics/otu/chimera_stats.csv` | `analysis/metrics/chimera_stats.csv` | ✗ |
+| `analysis/metrics/otu/alpha_diversity.csv` | `analysis/metrics/alpha_diversity.csv` | ✗ |
+| `databases/otu/taxonomy_consensus.csv` | `databases/taxonomy_consensus.csv` | ✗ |
+| `databases/otu/source_assignments.csv` | `databases/source_assignments.csv` | ✗ |
+| `databases/otu/metrics/taxonomic_resolution.csv` | `databases/metrics/taxonomic_resolution.csv` | ✗ |
+| `databases/otu/metrics/taxon_prevalence.csv` | `databases/metrics/taxon_prevalence.csv` | ✗ |
+
+The two that work are the two written before feature sets existed. **The bug is not a typo;
+it is a module that never learned a layout change**, and it degrades silently because
+`_read_rows` returns `[]` for a missing file, which is indistinguishable from an honest
+empty result — *the same sin as blastn exiting 0*, one layer up.
+
+**A second site, and its severity is lower — recorded honestly rather than punchily.**
+`ui/callbacks_databases.py:265` (`_database_metric_paths`) calls
+`database_metrics_paths(Path(output_dir) / "databases")` without the feature set. Against
+the golden run that returns `{}`; with `databases/otu` it returns both tables.
+(`database_metrics_paths` is the one resolver that is not feature-set-aware at all — its
+caller must supply the level, and this caller does not.) **But this is only the fallback.**
+The primary path reads `metrics_files` off the stage record, and the pipeline writes that
+correctly — verified in the golden `progress.json`:
+
+    "taxon_prevalence_csv": ".../databases/otu/metrics/taxon_prevalence.csv"   <- correct
+
+and `restore_run_state` hands those records back to the stores. So the prevalence card
+works whenever the store is populated or restorable, and the broken fallback is reached only
+when neither holds. It is a latent bug, not a blank page — unlike `results_summary.py`,
+which takes `output_dir` and goes to disk **every time, with no store path to mask it**.
+That difference is why Results is blank and Databases is not.
+
+**The correct resolvers already exist and are used elsewhere**, which is what makes this a
+drift rather than an oversight: `ui/feature_sets.taxonomy_file` (per-set first, flat
+fallback) and `analysis_metrics_paths` (same pattern) both resolve correctly against the
+golden, and `callbacks_results_summary.py:353` hand-rolls the same two-step fallback
+correctly. Four conventions, three right, one module left behind.
+
+**Why 401 tests pass while the page is blank — the important part.**
+`tests/test_results_summary.py::_run_tree` builds its fixture at
+`databases/taxonomy_consensus.csv` and `analysis/metrics/alpha_diversity.csv` — **the flat
+layout the code expects and the pipeline does not write.** The test and the code share one
+false belief, and agree with each other perfectly. The suite was not testing the pipeline's
+output; it was testing a directory the test itself invented. Nothing ever compared either to
+a real run. **A fixture written from the code under test can only confirm the code under
+test** — this is the tests' version of "coherence is not quality" (Rule 2), and it is why the
+golden files, not a fixture, are the contract.
+
+**Not fixed in this session, deliberately.** The fix is small (route the six paths through
+the existing resolvers, pass the feature set at `callbacks_databases.py:265`) and the
+tempting move is to make it now. But the check that proves it must first be seen **failing**
+on the current tree — otherwise it inherits the exact defect just documented: a fixture
+agreeing with the code. Sequence: a golden-backed check that fails on today's `results_summary`
+for the reason above, then the fix, then the check passes. Only then is the dropdown worth
+looking at.
+
+## 2026-07-16 — Phase 4 (export) CLOSED without code changes. Plan 0-4 complete.
+
+**The question was whether `taxa_table_class`'s column offset was still a bug or a symptom
+of the taxonomy Phase 3 fixed upstream. It was a symptom — but there were two distinct
+problems wearing the same face, and separating them mattered.**
+
+1. **A real, independent bug**: `database_metrics.TAXONOMY_RANKS` spells the rank `class_`,
+   `community_analysis` keyed on `class`, the `dict.get` returned `{}` in silence and every
+   read fell into `Unclassified`. **Already fixed before this plan started**
+   (`canonical_rank` / `_RANK_ALIASES`), with tests pinning it.
+2. **The symptom the plan describes**: `taxa_table_class` reading `Unclassified, 100%`. Not
+   an offset — `tax_table.Class` was *genuinely empty*, because no Linnean source reached
+   the consensus. Phase 3 fixed it upstream.
+
+**The decisive evidence is check (c) passing on `golden_baseline`** — the pre-Phase-3 run
+with the broken taxonomy. `taxa_table_class` already agreed with `tax_table` there; both
+said empty. Had the offset still existed, the two would have disagreed. Diagnosis by
+evidence, not by reading the code.
+
+**Audited the instrument, not just the output.** Check (c) only ever tested *class* — so
+all seven ranks were verified by hand against `tax_table`: kingdom, phylum, class, order,
+family, genus, species all agree, all totalling 154 223. The rest of Phase 4's targets hold
+too: `phyloseq/otu_table.tsv` matches the canonical abundance (9 OTUs, 154 223);
+`table.biom` carries 154 223 and the harmonised lineage with `s__` empty where the LCA found
+no agreement — NA, not invented.
+
+**Nothing to fix, so nothing was touched.** Frozen: `golden/{real,fixture}/export`.
+
+**Phases 0, 1, 2, 3 and 4 are closed.** The two that closed without code changes (2 and 4)
+did so because the work had already been done upstream — which is what the phase ordering
+was for.
+
+## 2026-07-16 — Two permanent rules, the megablast trade-off, and a non-determinism
+
+These are **rules, not fixes for one run**. Both were learned from blastn; neither is
+about blastn.
+
+### Rule 1 — judge an external tool by its OUTPUT, not by its exit code
+
+`blastn` exits **0** having printed `(Severe Error) ... CPU usage limit was exceeded` for
+every query and written an empty result file. `check=True` therefore saw success, and the
+refusal travelled to `source_status` as `no_hits` — the one thing that column exists to
+prevent. An exit code is a claim the tool makes about itself; the output is evidence.
+
+The other half, which a naive version of this rule gets wrong in the opposite direction:
+**an empty output is not automatically a failure.** A filter that legitimately passes
+nothing and a crash produce the same empty file. Only the tool's own error output tells
+them apart:
+
+    empty output + error signature  -> FAILURE (refused / died)
+    empty output + clean run        -> a real, honest, empty result
+
+"Empty means broken" would turn every honest absence into a false alarm — the original sin
+wearing the opposite mask. `core/process.py` encodes both halves (`run_tool`,
+`find_failure_signature`, `ToolResult.ok`) so the rule lives in one place.
+
+Applied beyond NCBI to `databases/custom_db.py`, which is the **exact twin**: same blastn,
+same `check=True`, same blindness — and a 0-byte `custom_blast_raw.tsv` was already on the
+fix plan's list. The remaining `check=True` call sites (vsearch, cutadapt, PEAR,
+Trimmomatic, MAFFT, FastTree, RAxML, FastQC) are audited but **not** blanket-converted:
+that would be fixing by assumption, which this plan forbids. Each needs its own evidence
+of how it fails, and `run_tool` is what they move to as that evidence arrives. Two already
+handle the signal case (`taxonomy_runner`, `dada2_runner` check for negative return codes
+= OOM killer), which is the same rule discovered independently.
+
+### Rule 2 — coherence is not quality
+
+The five checks test whether the files agree with **each other**. They all passed on a run
+whose only Linnean source had died: nothing contradicted anything, every rank was honestly
+empty, `5/5`. **A coherent run can be a useless run.** Check (f) asks the question the
+other five structurally cannot — *did anything actually deliver the goods?* — and any
+future check suite needs at least one of its kind. Coherence checks can only ever say "no
+lie was told"; they cannot say "something true was said".
+
+### The megablast trade-off — the concrete number
+
+Remote (default): **`task=megablast`**, which seeds on a **28 bp exact match**. Our
+`perc_identity` floor is **90%**, where mismatches fall roughly **every 10 bp** — so a 28 bp
+exact seed is unlikely to exist in a genuinely divergent hit, and megablast **can miss a
+parasite at ~90% identity that blastn would find**. This is the sensitivity we are paying
+for reliability, stated so nobody has to rediscover it.
+
+It is paid because the alternatives do not run at all — measured, same 9 OTUs, same day:
+
+    -task blastn -word_size 11   -> REFUSED (SIGXCPU on all 9)
+    -task dc-megablast           -> REFUSED (SIGXCPU on all 9)
+    -task megablast              -> 123 hits, 9/9 OTUs, ~3 min
+
+**Where the sensitivity lives instead:** `PARAFISH_NCBI_LOCAL_DB=1` -> `task=blastn,
+word_size=11`, on our own CPU, where no public quota can refuse it. That is the only place
+the ~90% divergent hit is findable. **Do not "optimise" the remote default to blastn or
+dc-megablast — it does not fail slowly, it fails completely.**
+
+### SINTAX was unseeded — the taxonomy was not reproducible
+
+The most serious of the three, and the golden net is the only reason it was ever seen.
+Two fixture runs over byte-identical input, everything else matching:
+
+    OTU4,SILVA,species,Gadus_morhua_(Atlantic_cod),,,0.99,high     <- run 1
+    OTU4,SILVA,species,Gadus_morhua_(Atlantic_cod),,,0.98,high     <- run 2
+
+SINTAX bootstraps by randomly subsampling k-mers, and vsearch's `--randseed` **defaults to
+0, meaning "seed from a random data source"**. We never passed it. So the pipeline's
+classifications were samples from a distribution, not results: **the same reads against the
+same reference gave different numbers every run.**
+
+This is not cosmetic. Those bootstraps set `Reliability` and are compared against
+`--sintax_cutoff` — so a taxon sitting near the threshold can be **called on one run and
+absent on the next, from identical data**. A reviewer re-running the pipeline could not
+reproduce our numbers, and neither could we. Now `--randseed 42` (`SINTAX_RANDSEED`); any
+fixed non-zero value would do, the point is that it is not 0.
+
+Worth noting what this says about the method: a 0.99-vs-0.98 flicker in one cell of one CSV
+is invisible to any amount of reading the code, and no test would have caught it — the code
+was "correct" in the sense that it did what it said. It took two runs of identical data and
+a byte-level diff.
+
+### `conflict_report.csv` was non-deterministic
+
+Caught by the golden discipline doing its job: two fixture runs over identical data, every
+other taxonomy file byte-identical, and `conflict_report.csv` with the same rows shuffled.
+`_build_conflict_report` walked `records_by_asv` in insertion order — i.e. the order the
+sources happened to answer in — while the consensus beside it used
+`sorted(records_by_asv.items())`. Now both sort. A file that changes without its content
+changing cannot be diffed, which means nobody would notice it changing for a reason that
+*did* matter.
+
+### For the list (not now): the Linnean dependency is invisible
+
+Removing SILVA/PR2 from `LINNEAN_SOURCES` was right — forcing their non-Linnean backbones
+into Phylum/Class is what invented `Phylum=Opisthokonta`. The consequence to own: **the
+Linnean backbone now rests on NCBI alone.** Without NCBI reachable there is no
+Phylum..Family at all, and today a user discovers that from a failed run rather than being
+told up front. Check (f) fails loudly, which is the floor, not the fix — the report/UI
+should say it before the run, not after.
+
+## 2026-07-16 — The NCBI refusal was our request, not NCBI's mood
+
+**I blamed the server without auditing the request. The audit says the request was
+wrong.** Same 9 OTUs, same query, same day, against remote `nt`:
+
+    -task blastn -word_size 11   -> REFUSED, SIGXCPU on all 9      <- what we were sending
+    -task dc-megablast           -> REFUSED, SIGXCPU on all 9
+    -task megablast (default)    -> 123 hits, 9/9 OTUs, ~3 min
+
+`word_size 11` against all of nt is a full blastn search — the most expensive thing you
+can ask of a shared public quota, which is precisely what that quota exists to refuse.
+Nobody chose this: `NCBIConfig.word_size` defaulted to 11 while `task` was never set, so
+the search had blastn's cost under megablast's name. Remote now asks for `megablast` and
+lets the task pick its own seed length.
+
+**The rate-limit hypothesis was wrong too, and worth recording.** The requests were
+already batched: `-query` is the whole multi-FASTA and blastn submits it as ONE job. The
+nine identical errors are NCBI rejecting each query *inside* one job, not nine requests.
+One run makes one request; retries are now the only way we could approach NCBI's
+"once per 10 s", hence spaced growing backoff (30 s, 120 s, give up) rather than an
+immediate retry — and giving up returns a **failure with the reason**, never a silent zero.
+
+**blastn exits 0 when NCBI refuses it.** This is the load-bearing finding. It prints
+`(Severe Error) ... SIGXCPU` for every query, writes an empty result file, and returns
+**exit code 0** — so `check=True` never fires, `run_blast` returned `success=True,
+hit_count=0`, and `taxonomy_runner` faithfully translated that into `no_hits`. The
+refusal entered the system wearing the word for an honest absence. `run_blast` now reads
+its own stderr for refusal signatures and fails loudly. Reconciliation's 0-byte rule was
+catching this only by accident, downstream.
+
+**Sensitivity, honestly.** megablast seeds on a 28 bp exact match; at ~90 % identity
+(our `perc_identity` floor) mismatches fall every ~10 bp, so it *can* miss a divergent
+parasite that blastn would find. dc-megablast is the textbook answer for that and the
+public quota refuses it. So: remote (the default, per the supervisors' decision) uses
+megablast because it is the only search that completes, and the **local db is where the
+sensitive search is affordable** — `PARAFISH_NCBI_LOCAL_DB=1` opts in and gets
+`task=blastn, word_size=11`, on our own CPU.
+
+**Local BLAST is now opt-in and off by default.** It used to be selected automatically
+whenever the files happened to be on disk, which silently swapped the source out from
+under a run. The public remote nt is the source a reviewer can reproduce without our
+filesystem; the local db is the emergency exit for when NCBI is down.
+
+**Sixth check, mandatory: (f) a Linnean backbone reached the consensus.** The other five
+test whether the files agree with each other, and they all passed on the run where NCBI
+was refused — nothing contradicted anything, every rank was honestly empty, 5/5. That is
+the one way this suite could mislead, so the question is now asked directly. On the
+refused run:
+
+    FAIL (f)  no Linnean source fed any feature's consensus (saw: PR2|SILVA) · NCBI=failed
+              — Phylum..Family cannot be filled by SILVA/PR2, whose backbones are not Linnean
+
+SILVA and PR2 are excluded from `LINNEAN_SOURCES` on purpose: their backbones are not
+Linnean (PR2 has Supergroup/Division/Subdivision), and forcing them into those columns is
+what invented `Phylum=Opisthokonta` in the first place.
+
+## 2026-07-16 — Phase 3 (taxonomy) CLOSED and frozen
+
+**NCBI cooperated with a well-behaved batched request.** `NCBI,ok` on the real dataset,
+141 867 bytes of hits, `blast_no_hit.txt` **empty** — every OTU matched. The refusal was
+never NCBI's mood; it was our `word_size 11` (see the entry above). Real dataset, 6/6:
+
+    (a) read totals agree            all 11 sources = 154 223
+    (b) otu_id_map.size              9/9 OTUs match
+    (c) taxa_table_class             5 classes match
+    (d) no invented middle ranks     no Opisthokonta/Amorphea/Obazoa/Craniata
+    (e) source_status                NCBI=9 · PR2=9 · SILVA=9
+    (f) Linnean backbone             NCBI · 9/9 features with Phylum..Family
+
+The table this was all for:
+
+    OTU1  Eukaryota  Chordata    Actinopteri      Gadiformes         Gadidae             Gadus
+    OTU4  Eukaryota  Ascomycota  Eurotiomycetes   Eurotiales         Aspergillaceae      Penicillium coffeae
+    OTU5  Eukaryota  Ascomycota  Dothideomycetes  Pleosporales       Massarinaceae       Pseudosplanchnonema phorcioides
+    OTU6  Eukaryota  Chordata    Actinopteri      Gadiformes         Gadidae             Melanogrammus
+    OTU7  Eukaryota  Arthropoda  Insecta          Lepidoptera        Saturniidae         Saturnia pavonia
+    OTU8  Eukaryota  Chordata    Mammalia         Rodentia           Gliridae            Glis glis
+    OTU9  Eukaryota  Ascomycota  Dothideomycetes  Mycosphaerellales   Mycosphaerellaceae  Nothopassalora personata
+
+Every rank from Phylum to Family was empty before this; `taxa_table_class` said
+`Unclassified, 100%`. It now resolves five real classes. `Consensus_Sources` is
+`[NCBI|PR2|SILVA]` on all nine features — PR2 was harmonised, not replaced, and the table
+says so rather than asking to be believed. Species stays empty where the LCA found no
+agreement (OTU1/OTU2: *Gadus* genus, no species) — NA, not invented.
+
+**Frozen:** `golden/{real,fixture}/taxonomy`. Golden rule held throughout — `preprocess`
+and `analysis` PASS on both datasets; Phase 3 moved no number upstream. Tests: **399 pass**.
+
+**Phases 0, 1, 2 and 3 are closed. Phase 4 (export) is next**, and its inputs are now a
+frozen contract.
+
+## 2026-07-16 — Phase 3 (taxonomy): the fixes, before NCBI would run on the real data
+
+**The fabricated attribution — one line, and it explains the wrong species.**
+`best_alignment_record` skipped records whose identity was `None`. BOLD writes its
+non-identifications with `similarity = 0.0` — which is not `None`, so they scored; and
+since SILVA/PR2 are SINTAX and carry no identity at all, BOLD's non-answer was the *only*
+scoring record. Hence `Best_Source=BOLD, Best_Identity=0.0` on all 7 features while BOLD
+had identified nothing and the species on the row had come from SILVA. **The consensus was
+citing, as its evidence, the one source that had no evidence.** A record that named no
+taxon, or aligned at 0, is not a hit.
+
+**`Consensus_Sources`, a new column, because "PR2 was harmonised, not dropped" should be a
+fact and not a promise.** `Best_Source` names the strongest *alignment*, so a SINTAX source
+can never hold it once a BLAST source is present — SILVA and PR2 decided calls while being
+invisible in the output. The column lists the sources that actually fed each feature's LCA.
+On the fixture: `[NCBI|PR2|SILVA]` for every feature, `Best_Source=NCBI` at 100 %, 96.7 %,
+95.9 %, 99.6 %.
+
+This also killed a **false positive in my own check**: verify (e) had been asserting that a
+source with assignments must reach the consensus, measured via `Best_Source` — so it
+flagged "SILVA never reached the consensus", which is normal, not a bug. Participation is
+now read from `Consensus_Sources`; attribution from `Best_Source`. Two questions, two
+columns.
+
+**Status honesty, second pass.** `_reconcile_source_status` only ever judged sources
+claiming `ok`. NCBI labels itself `ok if hits > 0 else no_hits` up front, so a BLAST killed
+server-side arrived already saying `no_hits` and was waved through — **a failure wearing
+the words of an honest absence**, which is the exact sin this column was rewritten to stop.
+It now judges every source that ran (only `skipped` is exempt), against assignments, marker
+compatibility, and raw output. The real run now reads `NCBI,failed` off its 0-byte result
+instead of `no_hits`. Also added: `not_applicable` for a marker the source cannot carry
+(BOLD indexes COI; on 18S its 0/7 is not an absence, it is a question it could not answer).
+
+**Linnean ranks, on the fixture, with NCBI alive:**
+
+    OTU1  Eukaryota  Chordata    Actinopteri     Gadiformes  Gadidae         Gadus
+    OTU3  Eukaryota  Ascomycota  Eurotiomycetes  Eurotiales  Aspergillaceae  Aspergillus
+    OTU4  Eukaryota  Chordata    Actinopteri     Gadiformes  Gadidae         Melanogrammus
+
+Phylum..Genus were empty for every feature before this. Species stays empty where the LCA
+found no agreement — NA, not invented. No Opisthokonta, no Craniata.
+
+**A limitation worth naming: verify.py passes 5/5 on the real run where NCBI died.** The
+checks test *coherence*, not *quality*. A run with no Linnean source is perfectly coherent
+and perfectly useless for Phylum..Family. The checks cannot be the only thing anyone looks
+at, and `source_status` saying `failed` is what carries that signal.
+
+**Open, and it is a platform question, not a bug:** the Linnean backbone currently depends
+on a flaky remote service that rate-limits us. SILVA and PR2 were made to work locally by
+cutting the reference to the marker + primers (788 MB -> 25 MB); the same trick is the
+obvious candidate for a local BLAST subset, and would make Phase 3 reproducible instead of
+dependent on NCBI's mood.
+
+Tests: **396 pass**. Golden rule holds: `preprocess` and `analysis` PASS on both datasets —
+Phase 3 moved no number upstream.
+
+## 2026-07-16 — Singleton policy: retain, and it dissolves the second accounting
+
+**Decision: `min_unique_size` defaults to 1 — singletons may seed OTUs.** Configurable via
+`PARAFISH_MIN_UNIQUE_SIZE`; `core.config.MIN_UNIQUE_SIZE` is the one place it is decided.
+
+**Why, precisely.** "Singletons are sequencing error" is folklore, and it is wrong about
+the reads a floor of 2 actually discards. An error-derived read sits within 3% of the
+sequence it is an error of, so 97% clustering absorbs it into that OTU whatever the floor
+— it never seeds anything. What a floor of 2 *uniquely* discards is the read that is
+globally unique AND >3% from everything else. That is not the error profile; it is the
+rare-novel-taxon profile. On a parasite-detection platform that is the most expensive
+false negative available, and it is unrecoverable after the fact. Time is the cheap
+variable; a missed parasite is not repurchasable.
+
+**This is not hypothetical — the fixture had one.** `aptl64b_02`, floor of 2:
+
+    filtered 3969 -> mapped 3968, unmapped 1     (3 OTUs)
+    filtered 3969 -> mapped 3969, unmapped 0     (4 OTUs)   <- floor of 1
+
+That one read was globally unique and >3% divergent, so the floor barred it from seeding
+and it then matched no OTU: it left the pipeline without appearing anywhere. With the
+floor at 1 it founds OTU4 and gets counted and classified. The real dataset happened to
+have zero such reads — the cost was luck, not design.
+
+**The unexpected dividend: the two accountings collapse into one.**
+
+    floor 2:  sum(size)=154 223   sum(cluster_size)=151 466   gap = 2 757
+    floor 1:  sum(size)=154 223   sum(cluster_size)=154 223   gap = 0
+
+With nothing excluded from clustering, the clustering count *is* the mapping count. The
+147 010-vs-157 527 class of bug — the reason this whole plan exists — stops being
+something we document and becomes structurally impossible. `cluster_size` stays as a
+column: at floor 1 it is a tautology, at floor 2 it is the diagnostic.
+
+**Cost, honestly:** clustering time, 57 s -> 247 s on the real run (4.3x), because 4 232
+uniques are clustered instead of 1 475. A large host-dominated study may legitimately buy
+that back with a floor of 2 — which is why this is a config parameter and not a code edit.
+`read_tracking.csv` now carries `unmapped_reads`, so whatever the floor costs shows up as
+a number instead of vanishing. That visibility is what makes the choice safe to expose.
+
+**One default, not three.** It was hardcoded in `core/models.py` (2), re-hardcoded as a
+fallback in `vsearch_runner` (2), and defaulted to 1 in the Setup page — so the "policy"
+depended on which entry point you came in through. All three now read `MIN_UNIQUE_SIZE`.
+
+**Correcting my own claim from the previous turn.** I reported the two floors as producing
+"identical output". They do not, and I had compared aggregates (OTU count, read total)
+rather than file contents. What is actually true: the *set of 9 OTU sequences* is
+identical and the *multiset of abundances* is identical
+(`[2,2,2,2,4,4,12,43,154152]`, total 154 223). What changed is `cluster_size` (converged
+to `size`) and the OTU **ids**, permuted among equal-abundance ties because vsearch orders
+by cluster size. Biology unchanged; labels and one column moved.
+
+**And a method error.** I froze `golden/*/analysis` at the end of the previous session
+*before* Phase 2's second deliverable — this policy — had been decided, then read the
+resulting diff as a regression. It was not: it was the approved change landing on a
+premature freeze. Analysis is re-frozen under the decided policy. The signal that
+mattered was `preprocess`, which passed untouched. **A stage is not frozen until every one
+of its deliverables is closed, not merely its checks.**
+
+Tests: **392 pass**. `golden.py check all`: preprocess + analysis PASS on both datasets.
+
+## 2026-07-16 — Phases 0 (safety net), 1 (preprocess) and 2 (analysis) closed
+
+**The plan this follows was written against an older tree, and most of it was already
+done.** Rather than take its word for it, Phase 0 built the net that answers the question
+empirically. Result: on `golden_baseline` (the pre-fix reference run) four of the five
+checks already passed. Phase 2's close criteria — `otu_id_map.size` == its otu_table row
+sum, `chimera_stats.total_reads` == the otu_table total — hold at 157 527. Phase 4's
+"column offset in the class collapse" was already fixed (`canonical_rank`). What the plan
+called Phase 1's root cause ("integrate cutadapt before dereplication") was not the bug
+either; see the previous entry.
+
+**Phase 0 — four deliverables, all confirmed with real output.**
+
+- `scripts/make_fixture.py` — 5 000 read-pairs/sample. seqtk is not installed; this
+  samples with a fixed seed and *one* index set applied to both mates. Sampling the mates
+  independently yields a fixture that silently fails to assemble; verified R1/R2 read ids
+  are identical and the gzip output is byte-stable across rebuilds.
+- `golden_baseline/` — the 120-file pre-fix run, kept out of `runs/`.
+- `scripts/run_pipeline.py` — the pipeline had **no entry point outside the Dash UI**, so
+  no run was reproducible. This drives the same `run_config_from_store` +
+  `_run_pipeline_thread` the app drives, synchronously, to a fixed run id. A runner with
+  its own stage order could pass while the app stayed broken. Fixture: **20 s**. Real: **57 s**.
+- `scripts/verify.py` — the five checks, PASS/FAIL/SKIP (a SKIP is not a pass: a run
+  without the Databases stage must not look like a clean bill of health).
+
+**The net had a hole, and closing it found the biggest remaining bug.** Check (e)
+originally walked `source_status`'s own rows, so a source that ran and was then dropped
+entirely was *invisible* — it passed 5/5 on a run that names the wrong species. Judging
+each source against its raw output on disk instead:
+
+    FAIL (e)  NCBI: ran (blast_result.tsv, 9083 bytes) but is absent from source_status
+              CUSTOM: ran (custom_blast_raw.tsv, 0 bytes) but is absent from source_status
+
+`blast_result.tsv` holds 68 hits: OTU1 and OTU2 both *Micromesistius poutassou* at
+99.296 % and 99.766 %. NCBI ran, produced exactly the right answer, and nothing consumed
+it — while the consensus reports *Gadus morhua* from SILVA. The previous entry assumed
+NCBI "is not being exercised here"; it was. **This is why phylum..family are empty** —
+NCBI is the only Linnean source. That is Phase 3, and it is now the top of the list.
+
+**Phase 1 — the primer fix, confirmed by a run rather than by reading the code.**
+
+| | baseline | after |
+|---|---|---|
+| OTUs carrying TAReuk454FWD1 | **7/7** | **0/9** |
+| OTU1 / OTU2 | 80 800/13 405 and 1 244/62 016 — one fish split in two | **collapsed**: OTU1 = 79 761 + 74 391 |
+| `reads_with_primer` | empty | 99.98 % / 100 % |
+
+The columns were never "unfilled": cutadapt passed through, so there was nothing to fill.
+Same root cause as the split OTU.
+
+**The ~22 k reads with no trace were the quality filter.** Not derep, not chimeras. It
+runs in the *Analysis* stage, and `build_preprocess_metrics` only ever walked
+`preprocess/`, so the waterfall stopped at "assembled" and the loss was never mentioned:
+
+    assembled 179 605 − filtered 157 537 = 22 068   (+10 unmapped = 22 078)
+
+`read_tracking.csv` now spans the whole pipeline. `build_preprocess_metrics` takes an
+optional `analysis_dir` and the runner calls it a **second time** after Analysis — one
+writer, two calls, rather than a second table that could drift. New columns:
+`primer_trimmed_reads`, `filtered_reads`, `filter_discarded_reads`, `mapped_reads`,
+`unmapped_reads`, `pct_filtered`, `pct_mapped`. `mapped_reads` is read from the otu_table
+(the canonical basis) rather than recomputed. `failing_steps` now watches filtering — the
+step that was eating the reads was the one nobody was watching.
+
+**Deliberate deviation from the plan: no per-sample `dereplicated` / `non_chimeric`
+columns.** The plan asks for the chain `... -> dereplicated -> non_chimeric ->
+mapped_to_OTU`. Those are *pooled* operations, and `--minuniquesize 2` excludes reads
+from clustering while `--usearch_global` counts them anyway. A per-sample "dereplicated"
+column would therefore show a loss that does not exist — it would re-introduce the exact
+two-accountings confusion the previous entry removed. That accounting is pooled and stays
+in the vsearch pool log.
+
+**Real dataset, every read accounted for:**
+
+    input 191 410 -> trimmed 162 456 -> assembled 162 446 -> filtered 154 223 -> mapped 154 223 (+0 unmapped)
+    per sample: filtered == mapped + unmapped   ✓ both
+
+(`trimmed` drops further than the baseline's 188 355 because MINLEN=200 now applies to
+reads that are ~20 bp shorter — the primer is gone. Legitimate, and the reason downstream
+totals move.)
+
+**Also deviating on `source_status`:** the plan wants BOLD's 0/7 called `failed`. It is
+`no_hits`, and that is more honest — BOLD is COI-only and this is 18S data, so assigning
+nothing is a true result. `verify.py` encodes the implemented rule (empty/absent raw
+output ⇒ `failed`; real output ⇒ `no_hits`), not the plan's wording.
+
+**Phase 2 closed without code changes**, which is the honest outcome: its criteria are
+met on the regenerated real run — `otu_id_map.size` equals its otu_table row sum for
+9/9 OTUs, and otu_table = otu_matrix = `chimera_stats.total_reads` = 154 223. The
+`cluster_size` column stays: it is not the "second accounting" the plan wants deleted but
+the diagnostic that makes the mapping/clustering gap visible, and the previous entry is
+why. Nothing to fix, so nothing was touched.
+
+**Frozen.** `scripts/golden.py freeze|check` — the contract files verbatim plus md5s for
+the bulk FASTQ/FASTA, namespaced by dataset (fixture and real legitimately differ).
+`preprocess` and `analysis` are closed for both datasets. Verified the check actually
+fails on changed input rather than rubber-stamping it, which matters now: **Phase 3 must
+not move a single number in either.**
+
+Tests: **390 pass**. verify.py on the real run: (a) and (b) PASS at 154 223, (c)(d)(e)
+SKIP (no Databases stage). **Phase 3 is next, and NCBI is the whole story.**
+
+## 2026-07-16 — Singleton policy, decided and made visible (review #7, plan #5)
+
+**The decision.**
+
+> Singletons do not **found** OTUs, but they do **count** toward the abundance of OTUs
+> founded by others.
+
+`--minuniquesize 2` stays. This is not the contradiction it looked like. The review read
+"derep has no size=1, so singletons were eliminated" and concluded the run had thrown
+them away — but dereplication only decides what may *seed* a cluster. The mapping step
+runs `--usearch_global` over the **full** pooled file, so those reads are still counted
+against whichever OTU they match. On run 20260716T080902Z that is 10 527 reads: excluded
+from OTU formation, present in `otu_table`.
+
+**Why it serves the stated goal** (tell true absence from dropout): a taxon abundant in
+one sample and seen once in another *is counted* in the second — 1, not 0. That is the
+dropout case, and it works. What is deliberately given up is a taxon seen exactly once in
+the entire run: it seeds no OTU and is lost. A globally-unique read is overwhelmingly
+sequencing error, and letting it found an OTU is what produced the spurious singleton
+OTUs this floor was added for.
+
+**Coherence between the two halves is the thing to protect.** Raising `min_unique_size`
+without knowing that the mapping still counts everything is precisely what let the
+pipeline report 147 010 reads in some files and 157 527 in others. The policy is now an
+output rather than folklore: `run_vsearch_pool_and_cluster` returns
+`min_unique_size / pooled_reads / uniques_written / unique_seqs_discarded /
+mapped_reads / unmapped_reads` and writes the policy into its log.
+
+**Verified on the run — the accounting closes end to end:**
+
+    pooled_reads           157 537
+    unique_seqs_discarded   10 527   (kept out of clustering, still counted)
+    mapped_reads           157 527   == otu_table total
+    unmapped_reads              10   (matched no OTU at id=0.97)
+    157 527 + 10 = 157 537 ✓
+
+The 10 unmapped reads are the only ones that leave the pipeline uncounted, and they are
+now named rather than missing. Tests: 390 pass.
+
+**Note for the next run:** with primers removed (previous entry), the singleton picture
+changes — part of the apparent uniqueness was the heterogeneous 5' spacer, not biology.
+`unique_seqs_discarded` should fall.
+
+## 2026-07-16 — Primers actually removed (review #3, #1)
+
+**The diagnosis changed on inspection.** "cutadapt is outside the pipeline" is not what
+was wrong. `run_cutadapt` *is* called (`callbacks_progress.py:221`), on the raw reads —
+well before dereplication, so the ordering requirement was already met — and it uses
+non-anchored `-g`/`-G`, which remove the primer **and everything 5' of it**, i.e. exactly
+the heterogeneous spacer. The code was right.
+
+**The actual root cause is one line of UI.** The preset dropdown shipped with
+`value=""` — and `""` is the value of the option *"None — do not strip primers"*. So the
+pipeline's default was *keep the primers*, `resolve_primers` returned `("", "")`,
+`run_cutadapt` took its `_passthrough` branch, and the run recorded that as a success
+with `primers_removed: 0.0`. An untouched control was indistinguishable from a deliberate
+opt-out. This run: `primer_preset=None, primer_fwd=None, primer_rev=None`.
+
+**Fix.** A new `"auto"` preset — now the dropdown's default — resolves the marker's
+standard pair (`MARKER_DEFAULT_PRESET`, 18S → TAReuk). `""` stays a real opt-out and is
+obeyed; an absent key (runs stored before "auto") is treated as auto. COI has no auto
+default on purpose: Folmer and Leray are both standard and amplify different regions.
+Guessing is safe *here* and nowhere else — cutadapt matches the primer as a sequence and
+removes it only where it occurs, unlike the Analysis stage's blind length-strip.
+`callbacks_setup` resolves "auto" the same way, so the preflight advises on the primers
+the run will actually use.
+
+**The prediction was falsifiable and it held.** Applying cutadapt to
+`pooled_filtered.fasta` (the direct input to dereplication) and re-running
+derep→cluster→chimera→map with the pipeline's own parameters:
+
+    reads carrying the primer   157 537 / 157 537  (100%) — it was never removed
+    OTU1 94 205 + OTU2 63 260 (split cod)  →  a single OTU with 157 439 reads
+    run total                   157 527 → 157 527   (invariant (a) holds)
+
+OTU1 and OTU2 were one *Micromesistius poutassou* split only by the 5' spacer
+(GCATAGCA vs TCCTGAAC). They now collapse. The OTU *count* stays 7 because the other six
+are the low-abundance contaminants, not because the merge failed.
+
+**Not verified, and why:** `reads_with_primer`/`pct_primer` are filled from cutadapt's
+`--json` report by `preprocess_metrics`, so they populate once cutadapt runs — but this
+run's raw FASTQs are gone (`KEEP_INTERMEDIATES=0`; only the Trimmomatic-trimmed reads
+remain), so preprocess cannot be re-run end-to-end here to show them filled. The
+resolution logic is pinned by unit tests instead, including one that guards the actual
+regression (the dropdown's default value). A fresh run is what will show those columns.
+
+Tests: 390 pass.
+
+## 2026-07-16 — Status = real result (review #2 rule 3, #5)
+
+**Provenance.** Every source decided its own status from a *different* proxy, and none
+of them was "did this source assign a taxon to anything" — the only question the column
+claims to answer:
+
+| source | old rule | proxy |
+|---|---|---|
+| BOLD | `"ok"` unconditionally | its parquet/xlsx **file existed** |
+| NCBI | `ok if hits > 0` | BLAST's `hit_count` — rows, not usable assignments |
+| custom BLAST | `ok if matched>0 else no_hits` | a match counter; 0-byte raw output still read as `no_hits` |
+| SILVA/PR2 | `_classify_sintax_source` | counted real assignments — the only correct one |
+
+That is how BOLD reported `ok, identificação BOLD concluída` on a run where all 7 of its
+rows were `unassigned, identity 0.0`.
+
+**Fix.** `records_by_asv` is the single source of truth — it is what
+`source_assignments.csv` and the consensus are built from. New
+`_source_assignment_counts` / `_reconcile_source_status` give it the last word: each
+`source_status` entry is tagged with its record key and its raw output, and before the
+CSV is written any source claiming `ok` with zero assignments is downgraded. Empty or
+absent raw output ⇒ `failed` (a broken database, not an honest absence); real output ⇒
+`no_hits`. `skipped` is left alone, so SILVA's out-of-memory message is not relabelled.
+
+**Verified on run 20260716T080902Z** — BOLD went `ok` → **`no_hits`**, "correu mas não
+atribuiu taxonomia a nenhuma das 7 features". That is correct rather than merely
+different: BOLD is COI-only and this is 18S data. SILVA/PR2 now read `ok, 7/7 features
+com taxonomia` and, thanks to the marker-filtered references, run locally (SILVA 788 MB
+→ 25 MB).
+
+**All five checks now hold at once on the regenerated run:**
+
+- (a) otu_table = otu_matrix = chimera_stats = taxonomic_resolution = every taxa_table = **157 527**
+- (b) every `otu_id_map.size` equals its otu_table row sum
+- (c) `taxa_table_class` and `tax_table` agree
+- (d) no invented middle ranks — Opisthokonta, Craniata, Amorphea, Obazoa all gone
+- (e) `source_status` matches `source_assignments`: BOLD no_hits/0, SILVA ok/7, PR2 ok/7
+
+Tests: 383 pass.
+
+**Still open (untouched, later iterations):** cutadapt before dereplication (#3 — OTU1/
+OTU2 are still one organism split by the 5' spacer), full read-tracking (#4), the
+singleton policy (#5 — `--minuniquesize 2` still drops 10 527 reads from clustering
+while the mapping counts them), and NCBI, which is the only Linnean source and is not
+being exercised here, so phylum..family stay empty.
+
+## 2026-07-16 — Harmonised taxonomic backbone (review #2 rule 2, #3, #4)
+
+**Two bugs, one root: modules disagreeing about what a rank is.**
+
+*(c) One rank, two spellings.* `taxa_tables_all_ranks` iterates
+`database_metrics.TAXONOMY_RANKS`, which spells the rank `class_` (dodging the Python
+keyword), and passes that string into `community_analysis._load_taxonomy`, whose
+`_RANK_COLUMNS` is keyed `class`. A plain `dict.get` — so it never raised. It returned
+`{}`, and `taxa_table_class.csv` reported 100% "Unclassified" for a run whose
+`tax_table.tsv` said Craniata. Only `class` was affected: it is the one rank whose name
+carries an underscore. Fixed with an explicit `_RANK_ALIASES`/`canonical_rank`, not by
+duplicating the dict key, so `RANKS` stays the canonical seven.
+
+*(d) Two non-Linnean backbones, both forced onto Linnean ranks.*
+
+- PR2 v5 (`Domain;Supergroup;Division;Subdivision;Class;Order;Family;Genus;Species`) was
+  mapped `("d", None, "p", None, "c", "o", "f", "g", "s")` — Division→phylum,
+  PR2's Class→class. That is where Phylum=Opisthokonta and Class=Craniata came from.
+- SILVA's `tax_silva` **declares no ranks at all**, and `silva_rank_labels` claimed
+  `p, c, o, f` positionally plus `g` on the last-but-one.
+
+Fixing PR2 alone just handed the middle ranks to SILVA: the run came back with
+Phylum=Amorphea (a supergroup), Class=Obazoa (a clade), Genus=Teleostei (an infraclass).
+Same fabrication, other source. Both are now cut back to what they actually declare:
+
+    PR2   → d (Domain), g (Genus), s (Species);  everything between = NA
+    SILVA → d (first field), s (organism name);  everything between = NA
+
+Plus PR2's unresolved-lineage placeholders (`Craniata_X`, `*_XX`, `*_sp.`) are **blanked,
+not dropped** — the nine levels are positional and removing a field would slide Genus
+onto Family. `SINTAX_FORMAT_VERSION` → v4 to rebuild the caches, which still held v2's
+`p:Opisthokonta`.
+
+**Why SILVA's `g` looked right for so long:** for `…;Sphaeropleales;Monoraphidium;
+Monoraphidium sp.` the level before the organism genuinely IS the genus. It is the genus
+often enough to look correct and not often enough to be correct; SILVA declares no ranks,
+so the position cannot tell that case from the cod's. The existing test asserted the
+happy case and is now updated to pin the contract instead.
+
+**Verified on run 20260716T080902Z** (re-ran clustering→mapping, taxonomy and both metric
+builders):
+
+- (c) `taxa_table_class` and `tax_table` now agree (both "no class"). Because the run
+  legitimately has no class any more, that check is vacuous on this data — so the alias
+  fix is pinned by a positive unit test (`Actinopteri,150`) rather than by the run.
+- (d) Not just Opisthokonta/Craniata gone: **Amorphea, Obazoa and Holozoa too**. Zero
+  invented middle ranks from either source.
+- (a)/(b) still hold after the rebuild: everything 157 527, every `otu_id_map.size`
+  equal to its `otu_table` row.
+
+**The cost, stated plainly.** The consensus is now Kingdom + Species and little else,
+because the only two sources that ran do not declare the middle ranks. That is honest
+rather than good: the Linnean ranks must come from a Linnean source, and NCBI — which
+has one — is contributing nothing because of review item #5 (`source_status` says `ok`
+on 0 assignments). Restoring phylum/class/order/family properly means either fixing NCBI
+(next) or giving PR2/SILVA their own rank columns in the consensus schema (Supergroup/
+Division/Subdivision, and SILVA's rank file `tax_slv_*.txt`), which is a schema change
+across taxonomy_runner/database_metrics/community_analysis/phyloseq. Tests: 376 pass.
+
+## 2026-07-16 — Single source of abundance truth (review #2), on run 20260716T080902Z
+
+**Provenance first.** Two accountings existed, and the reference run reconciles them to
+the read:
+
+    pooled_filtered.fasta                          157 537 reads
+      --derep_fulllength --minuniquesize 2   →  "10 527 clusters discarded"
+      derep/cluster/otus.fasta ;size= sum     →     147 010   ← CLUSTERING basis
+      --usearch_global --otutabout            →     157 527 mapped (+10 no-match)
+                                                             ← MAPPING basis (canonical)
+
+    157 537 − 10 527 = 147 010 ✓        157 527 + 10 = 157 537 ✓
+
+So the "~10.5k reads with no trace" were never lost: `--minuniquesize 2` drops 10 527
+singleton *reads* before clustering, and `--usearch_global` then maps the full pooled
+file — singletons included — back onto the OTUs. Review items #2 and #7 are one bug.
+
+**Only two files were on the wrong basis.** `otu_matrix`, `alpha_diversity`,
+`rank_abundance`, `taxonomic_resolution` and every `taxa_table` already derived from the
+mapping table (157 527, verified). The offenders:
+
+- `analysis/pooled/otu_id_map.csv` — `_write_otu_id_map` read `;size=` out of the
+  `otus.fasta` header, i.e. the `--cluster_size --sizeout` value.
+- `analysis/metrics/otu/chimera_stats.csv` — `chimera_stats` used
+  `sum(cluster_read_counts(clusters.uc))`. Its own docstring claimed that sum was "the
+  reads actually clustered (157k)"; it is 147 010, and that stale assumption is what let
+  the bug survive an earlier fix.
+
+**Fixes at the source.** `_write_otu_id_map(otus, otu_table, out)` now takes `size` from
+the mapping table and is called *after* the mapping step (it used to run before that
+table existed — which is exactly why it could not have used it). The clustering value is
+kept as a new `cluster_size` column rather than dropped: the gap between the columns is
+where read redistribution shows up, and it is now visible instead of contradictory.
+`chimera_stats(..., matrix_path)` quotes the canonical total.
+
+**One subtlety, handled rather than papered over:** chimeric variants are removed
+*before* mapping, so their reads are absent from `otu_table` by construction — the
+cluster map is the only place they are counted. The denominator therefore depends on the
+basis: on `otu_table` it is `mapped + chimeric`; on the cluster fallback the sum already
+contains the chimeras and adding them back double-counts. An existing test caught me
+doing exactly that.
+
+**Verified by re-running pool/cluster/map + both metric builders on the run:**
+
+- (a) `otu_table` = `otu_matrix` = `chimera_stats.total_reads` (basis now `otu_table`) =
+  `taxonomic_resolution` = all 7 `taxa_table_*` = **157 527**, identical.
+- (b) every `otu_id_map.size` equals its `otu_table` row sum; total 157 527. The new
+  column shows why they used to disagree: OTU1 clustered 132 828 → maps 94 205;
+  OTU2 clustered 14 144 → maps 63 260.
+
+**Still failing, by design — later iterations:** (c) `taxa_table_class` = "Unclassified"
+vs `tax_table` Class = Craniata; (d) Phylum=Opisthokonta / Class=Craniata; (e)
+`source_status` reports BOLD/NCBI/PR2 `ok` with 0 real assignments and custom BLAST
+`no_hits` on a 0-byte raw file. Root cause of (c) already located: `taxa_tables_all_ranks`
+iterates `database_metrics.TAXONOMY_RANKS`, which spells the rank `class_`, while
+`community_analysis._RANK_COLUMNS` is keyed `class` — the lookup misses, returns `{}`,
+and every read falls into "Unclassified". It hits `class` only, because it is the one
+rank whose name carries the underscore. Tests: 368 pass.
+
+## 2026-07-16 — Missing deliverables in Downloads (plan #5)
+
+**What was actually wrong.** Mostly *exposure*, not production. `taxa_tables_all_ranks`
+(7 ranks × absolute+relative), `write_biom` and `alpha_diversity`/`rarefaction` were all
+already written to disk by `build_database_metrics` / the Analysis metrics — they simply
+were not in `_EXPORTS`, the declarative list that drives the Downloads table in
+`ui/callbacks_results_summary.py`. So they existed in the run directory and in the run
+.zip, and were invisible in the UI.
+
+The one thing genuinely absent was phyloseq. Note also that recent runs had **no**
+`taxa_tables/` or `table.biom` at all — not a bug in those writers, but
+`build_database_metrics` returning early because there was no `taxonomy_consensus.csv`:
+every reference had been skipped for lack of RAM. Fixed upstream by plan #3, same day.
+
+**New: `write_phyloseq_bundle`** (`databases/database_metrics.py`, next to `write_biom`).
+Writes `databases/<set>/phyloseq/` with `otu_table.tsv`, `tax_table.tsv`,
+`sample_data.tsv` and `load_phyloseq.R`. It is *not* redundant with BIOM: PARAFISH's BIOM
+writes `columns: [{id, metadata: None}]`, so the sample groups and the control flags —
+the two things every downstream comparison needs — do not survive the BIOM route. They
+survive this one. Counts are exported raw: rarefying/normalising is the analyst's call
+and phyloseq has `rarefy_even_depth`/`transform_sample_counts` for it. Unassigned ranks
+are blank rather than "unclassified", which `tax_glom()` would otherwise treat as one
+real taxon and merge unrelated features under.
+
+**Verified in real R 4.5.0** (phyloseq itself is not installed here, so the script's
+final `phyloseq()` call is unexercised): the script parses, and the three tables load
+with the alignment phyloseq silently depends on — `rownames(otu) == rownames(tax)`,
+`colnames(otu) == rownames(sam)`, blanks arriving as `NA`, `sam$reads == colSums(otu)`.
+A mismatch there does not raise; it yields an object with fewer taxa than the run had.
+
+**Downloads (`_EXPORTS`) gained six rows:** alpha diversity, rarefaction, relative
+composition at genus and species, BIOM, phyloseq. Missing rows keep the existing
+greyed-out-with-a-reason treatment; taxonomy-derived rows get a reason that says "no
+taxonomy" rather than "Databases did not run", which would send the user to fix the
+wrong thing. The phyloseq row links the script alone and says so — its three tables are
+siblings on disk and travel in the run .zip (confirmed: all four land together in
+`<run>/databases/metrics/<set>/`, which is what the script needs to run in place).
+
+**Known gap, pre-existing:** `_EXPORTS` hard-codes the `otu` feature set, so a DADA2-only
+run shows these rows as missing. It predates this change (the consensus/hits rows already
+did it) and is untouched here.
+
+Tests: `PhyloseqBundleTests` in `tests/test_database_metrics.py` (10); 364 pass.
+
+## 2026-07-16 — Marker-filtered references: SILVA/PR2 run locally again (plan #3, option 1)
+
+**Problem.** This box has 2.8 GB of RAM and ~0.7 GB free. VSEARCH `--sintax` loads the
+reference plus a k-mer index (~3x the FASTA), so full SILVA asked for ~2.5 GB and PR2 for
+~1.0 GB; the memory gate in `core/preflight.py` skipped both on every run. That left only
+the remote sources — BOLD (COI-only, so no hits on 18S) and NCBI (~1 min/sequence, and it
+returned a species with no lineage above it). The local, fast, full-lineage path was dead.
+
+**Change.** New `databases/reference_filter.py` cuts a reference down to the region the
+run actually amplified, before the memory gate ever sees it:
+
+    SILVA 824 MB --(keep Eukaryota)--> 110 MB --(cut to the V4 amplicon)--> 27 MB   (29x)
+    PR2   334 MB --(already euk-only)--------> --(cut to the V4 amplicon)--> 85 MB  (4x)
+
+The amplicon is cut with the run's **own** primers (`PRIMER_PRESETS` / `primer_fwd`+`rev`),
+so reference and query describe the same stretch of gene — which is also why this makes
+SINTAX *more* accurate, not just smaller: a 380 bp query is scored against 380 bp
+references instead of 1 800 bp whole-SSU sequences whose bulk the query never spanned.
+
+Wired through `run_taxonomy_pipeline(marker=, primers=)` from both call sites
+(`callbacks_progress`, `callbacks_databases`); `preflight_notes(marker_filter=)` now says
+"will be reduced to your marker" instead of the (no longer true) "will be skipped".
+
+**Verified on the real run** `runs/pr/20260709T083137Z` (12 OTUs), with 300 MB free:
+SILVA and PR2 both `ok`, 12/12 classified each, full kingdom→species lineage,
+`Reliability: high`, 7.8 s end-to-end, 258 MB peak RSS. Identified *Gadus morhua*
+locally — no network. Build costs ~4 s and 29 MB RSS, cached next to the source and
+reused thereafter (cache keyed by source mtime + primers + format version).
+
+**Degrades, never fails.** Unknown marker / missing cutadapt / primers that match almost
+nothing (< 20% yield ⇒ wrong marker for this database) each fall back one rung:
+lineage+amplicon → lineage-only → the original file (gate skips it, as before). A
+mixed-marker run gets no filter — there is no one amplicon to cut to.
+
+**Bug found and fixed on the way.** `_parse_sintax_assignment` stripped whatever sat in
+the last parentheses as a bootstrap. 7.7% of SILVA's eukaryote names carry a common name
+there (`Gadus_morhua_(Atlantic_cod)`), and the cutoff-filtered column it reads by
+preference has no bootstraps at all — so it amputated the species to `Gadus_morhua_` and
+set the bootstrap to the string `Atlantic_cod`. Now only a numeric parenthetical is
+treated as a bootstrap (`_split_taxon_confidence`). Latent until now precisely because
+SILVA was always skipped.
+
+**Notes.** SILVA is filtered to Eukaryota, so bacterial contamination in an 18S run will
+no longer be called by SILVA — that is the intended trade for a reference that fits, and
+NCBI still covers it. Tests: `tests/test_reference_filter.py` (16) plus
+`SintaxParentheticalNameTests`; 354 pass.
+
+## 2026-07-15 — Language uniformisation (EN) + shared bar theme (plan #4)
+
+**Language.** Every user-facing string in `ui/pages/*.py` is now English; the pages had
+PT/EN mixed on the same screen ("Parâmetros usados" next to "Read tracking"). Converted
+titles, card headers, subtitles, help notes, placeholders, radio/checklist labels and
+buttons across Results, Databases, Analysis, QC, Preprocess and Phylo. Verified zero
+accented/PT strings remain in the page layer.
+
+**Safe by construction.** Only display text changed. Dropdown/radio **values** were
+already English internal keys (`Consensus_Kingdom`, `otu`/`asv`, `shared`/`unique`,
+stage keys) and were left untouched, so no callback logic depends on the translated
+labels. All six page layouts render; 333 tests pass.
+
+**Shared bar theme.** `ui/plots.py::_theme` — the single styling entry point every figure
+already goes through — gained `bargap=0.32` / `bargroupgap=0.12`, so bar charts read as
+bars instead of one solid wall. Ignored by non-bar figures, so it is safe to apply to
+every figure and needed no per-page changes.
+
+**Header typography.** `.page-sub` dropped `font-family: var(--font-mono)` in
+`assets/parafish_theme.css`, so page descriptions render as a normal sans subtitle
+rather than monospace.
+
+**Still open for this item.** Long multi-line help paragraphs in the *callback* layer
+(empty states, log/warning text) remain Portuguese — deliberately deferred: they are
+lower-visibility and riskier to bulk-translate. A central string constant/dictionary
+(the plan's anti-drift measure) is not yet introduced.
+
+## 2026-07-15 — Primer removal with cutadapt (plan #2)
+
+**Problem.** The reproducibility block showed `primer_fwd`/`primer_rev` empty and primers
+were only ever handled by a fixed-length `vsearch --fastq_stripleft/stripright` in the
+Analysis stage — blind (strips N bases whether or not the primer is there), no degenerate
+matching, and a no-op unless the user filled the fields.
+
+**Change.** New `preprocess/cutadapt_runner.py` removes the forward primer from R1 and the
+reverse from R2 on the *raw* reads, before Trimmomatic, using cutadapt's native IUPAC
+wildcard matching. Wired into the Preprocess loop in `ui/callbacks_progress.py`: cutadapt
+runs, then the primer-trimmed reads are fed to Trimmomatic via `dataclasses.replace` on the
+sample's paths. Presets (`analysis.vsearch_runner.PRIMER_PRESETS`: 18S V4 TAReuk, COI
+Folmer/Leray) and the manual fwd/rev fields already in Setup are reused. `CUTADAPT_PATH`
+added to `core.config`.
+
+**No double removal.** When cutadapt ran, the pipeline sets
+`vsearch_params["primers_removed_upstream"]`, and `_primer_strip_lengths` returns `(0,0)` —
+so the Analysis-stage length strip never truncates real sequence on top of cutadapt.
+
+**Degradation.** No primers configured → reads pass through untouched (`primers_removed
+== 0.0`), behaviour identical to before. cutadapt missing or failing → same passthrough
+with a clear warning, and the old length strip still applies as a fallback, so primers are
+not silently kept.
+
+**Read tracking.** cutadapt writes a `--json` report per sample; `preprocess_metrics` adds
+`reads_with_primer` + `pct_primer` (how many reads actually carried the primer).
+
+**Verified.** 18S V4 forward with degenerate S/Y removed exactly from concrete-base reads;
+PE removes both primers; passthrough and cutadapt-absent paths confirmed. `cutadapt>=4.0`
+added to requirements (installed 5.2). Tests: `tests/test_cutadapt_runner.py` (8). 333 pass.
+
+## 2026-07-15 — Active-project visibility on Samples/Setup (project-tab UX)
+
+**Problem.** A user created a project "new", but the samples and the run were attributed
+to a different, still-active project ("projeto_1"). Audit found no attribution bug — the
+code correctly saves to the active project and there is no code path that reverts
+`active_id`. The real gap was UX: the active project showed only in the corner badge, so
+it was easy to create a fresh project, upload into whichever one was still active, and run
+the wrong data without noticing.
+
+**Change (additive, no logic redefined).** A "Projeto ativo" strip at the top of Samples
+and Setup (`samples-active-project`, `setup-active-project`) naming the active project and
+its selected-sample count, and a line next to "Run Pipeline" (`setup-run-target`) stating
+exactly which project and how many samples the run will use — or an amber warning when no
+project is active / no samples are selected. Helpers `_active_project_banner` /
+`_run_target_note` in `ui/callbacks_project.py`, driven by `store-project` + `store-samples`.
+Reuses existing badge/pill classes (no CSS changes). Run logic untouched. 325 tests pass.
+
+## 2026-07-15 — Multi-rank taxonomy: resolve NCBI lineage from taxids (plan #1)
+
+**Symptom.** On a run whose hits were all NCBI BLAST, the consensus table had
+`Consensus_Kingdom..Consensus_Family` blank and only Genus/Species filled. That
+emptied the Databases sunburst (all inner rings "Unassigned"), the per-rank
+breakdown (kingdom..genus = 0, species = 100%), and the Results community-composition
+plot (a single solid Phylum bar). The "Nível taxonómico" selector had nothing above
+species to offer.
+
+**Cause.** `blastn -outfmt 6 ... sscinames` reports only the organism binomial. The
+code recovered Genus (first word) + Species from it but never the lineage above genus.
+BOLD would carry a lineage but found nothing for these sequences, and SILVA/PR2 (which
+do) were skipped for RAM.
+
+**Fix.** New `databases/ncbi_lineage.py` resolves each hit's `staxids` into a ranked
+lineage via `Bio.Entrez.efetch(db="taxonomy")`, batched over unique taxids and cached
+on disk (`<DB_ROOT>/ncbi/lineage_cache.json`) so re-runs never re-fetch. Wired into the
+NCBI branch of `run_taxonomy_pipeline`, filling only blank ranks (a name BLAST already
+asserted is never overwritten). NCBI's `superkingdom` and `kingdom` both map to the
+`kingdom` column, with `kingdom` (Metazoa/Fungi/...) winning over `superkingdom`
+(Eukaryota) as the more informative top level.
+
+**Config.** `core.config.get_entrez_config()` reads `ENTREZ_EMAIL` (required by NCBI for
+automated access) and an optional `NCBI_API_KEY`/`ENTREZ_API_KEY` (raises the rate limit
+3→10 req/s). Both from the environment/.env.
+
+**Degradation.** Best-effort by design: no email, no Biopython, or no network → returns
+the cache plus a plain-language warning appended to the run log, and the upper ranks
+stay blank instead of failing the stage. Verified on the real run's `blast_result.tsv`:
+taxids `81636/100272/310288/2060155` captured, and with lineage supplied OTU1 resolves
+Metazoa→Chordata→Actinopteri→Gadiformes→Gadidae→Micromesistius→M. poutassou.
+
+**Note for existing runs.** The fix populates *future* runs; a past run's consensus CSV
+is not rewritten. Set `ENTREZ_EMAIL` in `.env`, then re-run the Databases stage to see
+the ranks fill. Tests: `tests/test_ncbi_lineage.py` (7).
+
+## 2026-07-14 — UI unification, Results rework, ordination (T0–T4)
+
+### T3 — the selector bug: what was actually wrong
+
+The spec's first hypothesis ("no callback populates `options`") was **wrong** — the
+callbacks existed (`ui/callbacks_results.py`). The real causes were the other two,
+compounding:
+
+1. **Options were gated on `status == "success"`.** Any stage that failed, was skipped,
+   or ran partially never appeared in the list. On the run that actually needed
+   debugging — analysis and databases both failed — the dropdown was literally empty and
+   read as a dead control rather than a failed run.
+
+2. **The source of truth was UI state, not disk.** Options derived from
+   `store-{qc,preprocess,analysis,databases,phylo}-outputs`, all `storage_type="session"`.
+   Those stores are only ever written by the progress poller, which *disables itself* when
+   the run finishes. So: app restart → empty; new tab → empty; navigating to Results
+   without having watched the run go by → empty. Meanwhile `<run>/progress.json` on disk
+   had everything, and was never consulted.
+
+**Fix:** `core/run_registry.py` reads the run from disk and is now the single source for
+every selector. All five stages are listed with their real status (`Analysis ✕ falhou`),
+and stages with no per-sample output say so (`"Este stage não tem output por amostra"`)
+instead of offering an enabled, empty dropdown. Survives F5, new tabs and a server
+restart, because the facts live where the pipeline put them.
+
+### T4 — zero replacement in the CLR: the decision, and its cost
+
+**Chosen: a fixed pseudocount of 0.5 on the counts**, applied after the prevalence
+filter. Rejected `zCompositions::cmultRepl` (Bayesian multiplicative replacement) because
+it pulls in an R dependency for a second-order refinement.
+
+The cost is real and is documented in the code, in the UI, and in a test
+(`test_pseudocount_breaks_exact_scale_invariance`): **`clr(x)` is exactly scale-invariant,
+but `clr(x + 0.5)` is not**, because 0.5 means something different at a depth of 100 than
+at 5,000. Measured distortion is <1% on the coordinates for a 50× depth swing — orders of
+magnitude below the biological signal, and far smaller than the depth artefact it
+replaces (on raw counts, PC1 captures sequencing depth almost entirely). But it is
+non-zero, and the test exists so nobody later "fixes" it by tightening a tolerance.
+
+Other guards worth knowing:
+- `n < 3` → **no plot**, ever. An explicit empty state instead: with two samples there is
+  one axis and the separation is an artefact of having two points.
+- `3 ≤ n < 5` → plots, with a visible low-confidence warning.
+- Degenerate distance matrices are refused (Jaccard on a table where every feature is in
+  every sample gives all-zero distances; skbio then returns NaN axes).
+- PERMANOVA reports its **p-value floor**. With two groups of three the smallest
+  attainable p is 1/10 = 0.1, so a "p = 0.12" from that design is the floor of the test,
+  not weak evidence — it now says so.
+
+### New dependencies
+
+`scikit-bio` (PCoA, Bray-Curtis/Jaccard/UniFrac, PERMANOVA) — already present in
+`requirements.txt` and installed (0.7.3); no new pins were needed. `numpy`/`scipy` cover
+the CLR-PCA via SVD, so no `sklearn` dependency was added.
+
+### Other changes
+
+- **T0.** One `data_table()` factory (`ui/components/table.py`); 20 direct
+  `dash_table.DataTable` instantiations removed. QC's "Run overview" and Preprocess's
+  "Read tracking" had passed only `{"padding": "8px"}`, inheriting Dash's near-black
+  default on a dark card — ~2:1 contrast, effectively invisible. Now 13:1, enforced by a
+  test that computes the WCAG ratio and by one that greps for stray `DataTable(` calls.
+- **T1.** Phylo and Results moved onto the shared cards/KPIs/section headers. Error toasts
+  consolidated into one banner with a count (`Servidor não respondeu · ×9 · 09:09:13`) and
+  a `<details>` for the occurrences; the Dash dev-tools overlay that stacked ten identical
+  cards is now off. Pages stratified into Layer 1 (status + KPIs + one hero plot, always
+  visible) and Layer 2/3 (`<details>`, zero callbacks). Raw Illumina headers demoted and
+  the ids cleaned. Distribution plots switch to labelled bars at `n ≤ 4`.
+- **T2.** Results rebuilt as a run summary: run header with an aggregate badge, an
+  end-to-end **read funnel** (input → trimmed → merged → clustered → classified, with any
+  single step losing >20% flagged red), five clickable per-stage KPI cards, community
+  composition with a rank selector and a host-exclusion toggle, compact ordination, then
+  tables/exports/reproducibility. Stages that did not run render an explicit badge, never
+  a blank.
+- **Reproducibility block** reads tool paths from `core.config`, **not `$PATH`** — on this
+  machine those differ (PATH has the broken blastn 2.9.0; the pipeline uses 2.17.0), and
+  reporting the wrong one would put a version in a paper that never touched the data.
+
+313 tests pass.

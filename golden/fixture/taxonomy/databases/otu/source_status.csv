@@ -1,0 +1,4 @@
+source,status,detail
+SILVA,ok,4/4 features com taxonomia · 4 sequências classificadas · referência filtrada para 18S: 25 MB (54 207 sequências) de 788 MB (510 495) — Eukaryota apenas (58 940 de 510 495); recortada aos primers CCAGCASCYGCG…/ACTTTCGTTCTT… (54 207 de 58 940)
+PR2,ok,4/4 features com taxonomia · 4 sequências classificadas · referência filtrada para 18S: 76 MB (170 678 sequências) de 343 MB (240 201) — Eukaryota apenas (232 042 de 240 201); recortada aos primers CCAGCASCYGCG…/ACTTTCGTTCTT… (170 678 de 232 042)
+NCBI,ok,4/4 features com taxonomia · 649 hits BLAST

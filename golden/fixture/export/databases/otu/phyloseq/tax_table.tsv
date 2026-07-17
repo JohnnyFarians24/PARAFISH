@@ -1,0 +1,5 @@
+feature_id	Kingdom	Phylum	Class	Order	Family	Genus	Species
+OTU1	Eukaryota	Chordata	Actinopteri	Gadiformes	Gadidae	Gadus	
+OTU2	Eukaryota	Chordata	Actinopteri	Gadiformes	Gadidae	Gadus	
+OTU3	Eukaryota	Ascomycota	Eurotiomycetes	Eurotiales	Aspergillaceae	Aspergillus	
+OTU4	Eukaryota	Chordata	Actinopteri	Gadiformes	Gadidae	Melanogrammus	
