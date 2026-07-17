@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import json
 import os
+import re as _re
 import shutil
 import subprocess
 import tempfile
@@ -238,6 +239,118 @@ def _mirror_output_to_results(source_path, results_path):
 	except Exception:
 		return results_path
 	return results_path
+
+
+# Bumped whenever the SINTAX conversion changes meaning, so cached reference
+# databases built by an older mapping are rebuilt instead of silently reused.
+# v3: PR2 no longer forces its Division/Class onto the Linnean p:/c: ranks, and its
+# unresolved-lineage placeholders are blanked. A cache built by v2 still carries
+# "Phylum=Opisthokonta", so the name must change for it to be rebuilt.
+# v4: SILVA stops claiming p/c/o/f/g positionally on lineages that declare no ranks
+# (it was emitting Phylum=Amorphea, Genus=Teleostei). Same reason: v3 caches are wrong.
+SINTAX_FORMAT_VERSION = "v4"
+
+_SINTAX_BASE_RANKS = ("d", "p", "c", "o", "f", "g", "s")
+
+# PR2 v5 lineages carry nine fixed levels:
+#   Domain;Supergroup;Division;Subdivision;Class;Order;Family;Genus;Species
+#
+# Only three of those are safely equivalent to the Linnean ranks the consensus table
+# is keyed on. PR2's backbone is its own, and it is not Linnean:
+#
+#   * Supergroup, Division and Subdivision have no Linnean counterpart at all.
+#   * PR2's "Class"/"Order"/"Family" are not Linnean classes/orders/families. On the
+#     metazoan branch they hold clades and placeholders — Craniata is a subphylum,
+#     and Craniata_X is PR2's marker for "unresolved child of Craniata".
+#
+# The old mapping sent Division onto p: and Class onto c:, which is what produced
+# Phylum=Opisthokonta and Class=Craniata for a fish, made taxa_table_phylum report
+# "Opisthokonta" for the whole run, and made conflict_report flag a kingdom/phylum/
+# class conflict on *every* OTU — an artefact of mixing two backbones against a
+# Linnean source, not a disagreement about biology.
+#
+# So the non-equivalent ranks are dropped (``None``) rather than invented onto a slot
+# they do not occupy. This is a real trade: for protists — PR2's actual domain — its
+# Class (e.g. Dinophyceae) IS a genuine class, and it is lost here. The Linnean middle
+# ranks must come from a Linnean source (NCBI/SILVA/BOLD). Preserving them properly
+# needs PR2's own ranks as first-class columns in the consensus schema, which is a
+# larger change than this one.
+PR2_RANK_LABELS = ("d", None, None, None, None, None, None, "g", "s")
+
+# PR2 names an unresolved child by suffixing its parent: Craniata -> Craniata_X ->
+# Craniata_XX -> Craniata_XXX, and "<parent>_sp." for an unnamed species. These are
+# not taxa. Carried through, they make a placeholder read as an identification —
+# "Genus=Craniata_XXX, Species=Craniata_XXX_sp." says nothing except "a craniate".
+_PR2_PLACEHOLDER = _re.compile(r"(_X+|_sp\.?)$", _re.IGNORECASE)
+
+
+def is_pr2_placeholder(value) -> bool:
+	"""True for PR2's ``*_X``/``*_XX``/``*_sp.`` unresolved-lineage markers."""
+	return bool(_PR2_PLACEHOLDER.search(str(value or "").strip()))
+
+
+def _clean_taxon(value) -> str:
+	"""Strip the delimiters SINTAX's own tax= field uses."""
+	value = str(value or "").strip()
+	for char in (",", ";", ":"):
+		value = value.replace(char, "_")
+	return "_".join(value.split())
+
+
+def silva_rank_labels(depth: int) -> list:
+	"""Rank letters for a SILVA lineage of ``depth`` levels. Only the ends are claimed.
+
+	SILVA's ``tax_silva`` lineages vary in depth and **declare no ranks at all**: the
+	file gives an ordered path, and only two positions have a guaranteed meaning — the
+	first field is the domain and the last is the organism name.
+
+	The intermediate levels are therefore left unranked (``None``). Claiming them
+	positionally, as this used to (``p, c, o, f`` for the first four, ``g`` for the
+	last-but-one), does not recover SILVA's ranks — it fabricates them. On the
+	reference run that produced Phylum=Amorphea (a supergroup), Class=Obazoa (a clade)
+	and Genus=Teleostei (an infraclass) for a fish, which is the same error PR2's
+	Division→Phylum mapping made, from the other direction. Two sources inventing
+	different middle ranks is also what made conflict_report flag a kingdom/phylum/
+	class conflict on every OTU.
+
+	The cost is that SILVA now contributes only domain and organism. That is what SILVA
+	actually knows without its separate rank file (``tax_slv_*.txt``, which maps each
+	taxon path to a declared rank and is not shipped here); parsing that file is what
+	would let the middle ranks come back honestly.
+
+	The returned list always has exactly ``depth`` entries, so no field is truncated.
+	"""
+	if depth <= 0:
+		return []
+	if depth == 1:
+		return ["d"]
+	if depth == 2:
+		return ["d", "s"]
+	return ["d", *([None] * (depth - 2)), "s"]
+
+
+def taxonomy_fields_to_sintax(fields: list, rank_labels=None) -> str:
+	"""Convert an ordered list of taxonomy levels into a VSEARCH SINTAX tax= value.
+
+	``rank_labels`` gives the SINTAX letter for each incoming field; a ``None``
+	entry drops it. Pass the database's own mapping (``PR2_RANK_LABELS``,
+	``silva_rank_labels``) whenever the source's levels are not plain Linnean —
+	positional assignment is only correct for an ordered kingdom..species list.
+	"""
+	if rank_labels is None:
+		labels = list(_SINTAX_BASE_RANKS)
+		if len(fields) > len(labels):
+			labels += [f"r{i}" for i in range(len(labels) + 1, len(fields) + 1)]
+	else:
+		labels = list(rank_labels)
+	parts = []
+	for label, value in zip(labels, fields):
+		if not label:
+			continue
+		value = _clean_taxon(value)
+		if value:
+			parts.append(f"{label}:{value}")
+	return ",".join(parts)
 
 
 def prefix_fasta_ids(fasta_text: str, prefix: str) -> str:

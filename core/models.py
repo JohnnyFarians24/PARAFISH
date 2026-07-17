@@ -7,6 +7,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from core.config import MIN_UNIQUE_SIZE
+
 
 class AnalysisMode(Enum):
 	"""Library layout for input FASTQ files."""
@@ -65,6 +67,13 @@ class Sample:
 	mode: AnalysisMode
 	marker: Marker
 	selected: bool = True
+	# Negative/blank controls are sequenced alongside real samples to expose reagent
+	# and cross-contamination. They must never be pooled into diversity statistics;
+	# they are the reference against which contaminant features are called.
+	is_control: bool = False
+	# Free-form experimental group (site, host species, treatment...). Drives the
+	# grouped comparisons (PERMANOVA, ordination ellipses). None = ungrouped.
+	group: Optional[str] = None
 
 
 @dataclass
@@ -111,6 +120,11 @@ class RunConfig:
 		"fastq_minlen": 200,
 		"id": 0.97,
 		"sintax_cutoff": 0.8,
+		# The smallest cluster allowed to SEED an OTU. Configurable via
+		# PARAFISH_MIN_UNIQUE_SIZE; see core.config.MIN_UNIQUE_SIZE for the default (1)
+		# and the measurements behind it. Not a literal here: the value is a scientific
+		# choice a study makes, not a constant of the code.
+		"min_unique_size": MIN_UNIQUE_SIZE,
 		"threads": 8,
 	})
 	dada2_params: Dict = field(default_factory=lambda: {

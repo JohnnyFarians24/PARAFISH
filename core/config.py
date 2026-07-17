@@ -40,6 +40,7 @@ class DBPaths:
 	pr2_dada2: Optional[Path]
 	bold_dir: Optional[Path]
 	blast: Optional[Path]
+	pr2_tax: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -136,14 +137,44 @@ def _path_or_none(value: str) -> Optional[Path]:
 	return Path(value)
 
 
+def _resolve_pr2_tax(pr2_fasta: Optional[Path]) -> Optional[Path]:
+	"""Locate the PR2 mothur taxonomy file.
+
+	Honour an explicit env override first; otherwise look next to the PR2 FASTA
+	(the tax file normally ships alongside it) before falling back to the default
+	database directory. This avoids silent "tax file not found" failures when the
+	user points DB_PR2_PATH at a folder we don't otherwise know about.
+	"""
+	explicit = _path_or_none(os.getenv("DB_PR2_TAX_PATH", os.getenv("PR2_MOTHUR_TAX_PATH", "")))
+	if explicit and explicit.exists():
+		return explicit
+	search_dirs = []
+	if pr2_fasta is not None:
+		search_dirs.append(pr2_fasta.parent)
+	search_dirs.append(Path(PR2_DB_DIR))
+	for directory in search_dirs:
+		if not directory.exists():
+			continue
+		exact = directory / "pr2_version_5.1.1_SSU_mothur.tax.gz"
+		if exact.exists():
+			return exact
+		for pattern in ("*mothur.tax.gz", "*mothur.tax", "*.tax.gz", "*.tax"):
+			matches = sorted(directory.glob(pattern))
+			if matches:
+				return matches[0]
+	return explicit or _path_or_none(DEFAULT_PR2_MOTHUR_TAX_PATH)
+
+
 def get_db_paths() -> DBPaths:
 	"""Resolve database paths from environment variables."""
+	pr2 = _path_or_none(os.getenv("DB_PR2_PATH", os.getenv("PR2_FASTA_PATH", DEFAULT_PR2_MOTHUR_FASTA_PATH)))
 	return DBPaths(
 		silva=_path_or_none(os.getenv("DB_SILVA_PATH", os.getenv("SILVA_FASTA_PATH", ""))),
-		pr2=_path_or_none(os.getenv("DB_PR2_PATH", os.getenv("PR2_FASTA_PATH", ""))),
-		pr2_dada2=_path_or_none(os.getenv("DB_PR2_DADA2_PATH", os.getenv("PR2_DADA2_FASTA_PATH", ""))),
+		pr2=pr2,
+		pr2_dada2=_path_or_none(os.getenv("DB_PR2_DADA2_PATH", os.getenv("PR2_DADA2_FASTA_PATH", DEFAULT_PR2_DADA2_FASTA_PATH))),
 		bold_dir=_path_or_none(os.getenv("DB_BOLD_PATH", os.getenv("BOLD_DB_PATH", ""))),
 		blast=_path_or_none(os.getenv("DB_BLAST_PATH", os.getenv("NCBI_BLAST_DB", ""))),
+		pr2_tax=_resolve_pr2_tax(pr2),
 	)
 
 
@@ -166,9 +197,47 @@ def get_bold_credentials() -> Optional[BOLDCredentials]:
 	return None
 
 
+def get_entrez_config() -> dict:
+	"""NCBI Entrez identity for taxonomy lineage lookups.
+
+	NCBI asks every automated caller to identify itself with an email; an optional
+	API key raises the rate limit from 3 to 10 requests/second. Both are read from
+	the environment so nothing is hard-coded, and both are optional — the lineage
+	resolver degrades gracefully (upper ranks left blank, with a warning) when the
+	email is missing or the network is down.
+	"""
+	return {
+		"email": os.getenv("ENTREZ_EMAIL", "").strip(),
+		"api_key": os.getenv("NCBI_API_KEY", os.getenv("ENTREZ_API_KEY", "")).strip(),
+	}
+
+
 def get_runs_dir() -> Path:
 	"""Return the root directory for run inputs and outputs."""
 	return Path(os.getenv("RUNS_DIR", "/data/runs").strip() or "/data/runs")
+
+
+def check_core_tools() -> dict:
+	"""Report availability of the external bioinformatics tools on PATH.
+
+	The pipeline shells out to these tools directly (installed natively or inside
+	Docker), so a live PATH check is a truthful health indicator — unlike a
+	hard-coded "Docker offline" badge. Returns
+	``{"tools": {name: bool, ...}, "available": int, "total": int, "ok": bool}``.
+	"""
+	checks = {
+		"fastqc": FASTQC_PATH,
+		"vsearch": VSEARCH_PATH,
+		"blastn": BLASTN_PATH,
+		"mafft": MAFFT_PATH,
+		"fasttree": FASTTREE_PATH,
+	}
+	tools = {}
+	for name, path in checks.items():
+		tools[name] = bool(path and (shutil.which(path) or os.path.isfile(path)))
+	available = sum(1 for present in tools.values() if present)
+	total = len(tools)
+	return {"tools": tools, "available": available, "total": total, "ok": available == total}
 
 
 DB_ROOT = _resolve_db_root()
@@ -181,14 +250,48 @@ NCBI_REMOTE_FALLBACK = _env_bool("NCBI_REMOTE_FALLBACK", default=True)
 BOLDIGGER_PYTHON = os.getenv("BOLDIGGER_PYTHON", os.getenv("BOLDIGGER_VENV_PYTHON", "")).strip()
 
 BLAST_TIMEOUT_SEC = _env_int("BLAST_TIMEOUT_SEC", 900)
+
+# vsearch --minuniquesize: the smallest cluster allowed to SEED an OTU during
+# dereplication. 1 keeps singletons as possible seeds; 2 requires a sequence to be seen
+# at least twice before it may found an OTU.
+#
+# Default 1, because this is a parasite-detection platform. The reads a floor of 2
+# uniquely discards are not sequencing errors — those are within 3% of an abundant
+# sequence and get absorbed into its OTU by clustering either way. What a floor of 2
+# discards is the read that is globally unique AND >3% from everything else, which is the
+# exact profile of a rare novel parasite. That false negative is the most expensive
+# outcome this pipeline has, and it is not recoverable after the fact.
+#
+# Measured on the reference run (18S, primers removed): 1 and 2 produce IDENTICAL output
+# — same 9 OTUs, same 154 223 reads mapped, zero 1-read OTUs, zero unmapped. The feared
+# explosion of error-derived singleton OTUs does not happen. The only real cost is
+# clustering time (57 s -> 247 s on that run), which scales with the number of uniques.
+#
+# So 2 remains a legitimate choice for a large host-dominated study buying back time, and
+# is exposed rather than hardcoded: `read_tracking.csv` now carries `unmapped_reads`, so
+# whatever a floor of 2 costs shows up as a number instead of disappearing. That is what
+# makes it the user's call and not a code edit.
+MIN_UNIQUE_SIZE = _env_int("PARAFISH_MIN_UNIQUE_SIZE", 1)
+
+# Use a LOCAL BLAST database instead of NCBI's public remote service. Off by default:
+# the public remote nt is the source the project's supervisors asked for, and it is what
+# a reviewer can reproduce without our filesystem. A local db is the emergency exit for
+# when NCBI is down or refusing — and, being our own CPU, the one place a sensitive
+# search (task=blastn, word_size 11) is affordable; the public quota refuses that
+# outright (SIGXCPU). Set PARAFISH_NCBI_LOCAL_DB=1 and point BLASTDB/blast db paths at it.
+NCBI_USE_LOCAL_DB = _env_bool("PARAFISH_NCBI_LOCAL_DB", default=False)
 MAKEBLASTDB_TIMEOUT_SEC = _env_int("MAKEBLASTDB_TIMEOUT_SEC", 1800)
 BOLDIGGER_TIMEOUT_SEC = _env_int("BOLDIGGER_TIMEOUT_SEC", 900)
 
-# Timeout used specifically for remote NCBI BLAST calls. Remote NCBI BLAST
-# is generally unsuitable for synchronous pipeline runs (it's slow and can
-# hang the pipeline). Default to 0 (disabled) so users must opt-in or
-# configure a local BLAST DB instead.
-NCBI_TIMEOUT_SEC = _env_int("NCBI_TIMEOUT_SEC", 0)
+# Timeout for remote NCBI BLAST. Remote BLAST runs on NCBI's servers, so it costs
+# no local RAM, but it is slow (~1 min for a single query, and NCBI queues under
+# load). 1800s is enough for a typical OTU set; raise it for large ones.
+NCBI_TIMEOUT_SEC = _env_int("NCBI_TIMEOUT_SEC", 1800)
+
+# Directory holding NCBI's taxdb (taxdb.btd/.bti). Without it, blastn cannot turn a
+# taxid into a species name and every `sscinames` column comes back "N/A" — the hit
+# is there but unusable for taxonomy. Exported into the blastn environment.
+BLASTDB_PATH = os.getenv("BLASTDB", "").strip()
 
 FASTQC_PATH = _tool_cmd("fastqc", env_var="FASTQC_PATH")
 VSEARCH_PATH = _tool_cmd("vsearch", env_var="VSEARCH_PATH")
@@ -196,6 +299,7 @@ MAFFT_PATH = _tool_cmd("mafft", "mafft.bat", env_var="MAFFT_PATH")
 FASTTREE_PATH = _tool_cmd("FastTree", "fasttree", env_var="FASTTREE_PATH")
 RAXML_PATH = _tool_cmd("raxml-ng", "raxmlng", env_var="RAXML_PATH")
 PEAR_PATH = _tool_cmd("pear", env_var="PEAR_PATH")
+CUTADAPT_PATH = _tool_cmd("cutadapt", env_var="CUTADAPT_PATH")
 BLASTN_PATH = _tool_cmd("blastn", env_var="BLASTN_PATH")
 MAKEBLASTDB_PATH = _tool_cmd("makeblastdb", env_var="MAKEBLASTDB_PATH")
 RSCRIPT_PATH = _tool_cmd("Rscript", env_var="RSCRIPT_PATH")
