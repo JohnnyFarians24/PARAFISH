@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
+from ui.components.connection_banner import connection_banner
 from ui.components.sidebar import render_sidebar
 from ui.components.topbar import render_topbar
 from ui.pages.page_analysis import layout as analysis_layout
@@ -42,6 +43,7 @@ def create_layout():
             dcc.Store(id="store-analysis-outputs", storage_type="session"),
             dcc.Store(id="store-databases-outputs", storage_type="session"),
             dcc.Store(id="store-phylo-outputs", storage_type="session"),
+            dcc.Store(id="store-custom-db", storage_type="session"),
             dcc.Store(id="store-samples", storage_type="local"),
             html.Div(render_topbar(project_name="", mode="Complete", docker_ok=False), id="topbar", className="topbar"),
             html.Div(
@@ -49,6 +51,7 @@ def create_layout():
                     html.Div(render_sidebar(active_path="/project"), id="sidebar", className="sidebar"),
                     html.Div(
                         [
+                            connection_banner(),
                             _page_wrapper("page-project", project_layout(), visible=True),
                             _page_wrapper("page-setup", setup_layout()),
                             _page_wrapper("page-samples", samples_layout()),

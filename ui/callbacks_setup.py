@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from dash import Input, Output, State, html, no_update
 from dash.exceptions import PreventUpdate
 
+from core.config import MIN_UNIQUE_SIZE
 from core.models import PhyloMode
+from ui.callbacks_progress import _launch_pipeline_run
 from ui.components.sample_table import render_sample_table
-from ui.runtime_state import build_run_config, enum_from_value, serialize_run_config
+from ui.runtime_state import build_run_config, decode_upload_content, enum_from_value, resolve_project_data, serialize_run_config, slugify
 
 
 def _samples_list(samples_store):
@@ -109,6 +112,134 @@ def register_callbacks(app: Any) -> None:
 
 
     @app.callback(
+        Output("setup-custom-db-status", "children"),
+        Output("store-custom-db", "data"),
+        Input("setup-upload-custom-db", "contents"),
+        State("setup-upload-custom-db", "filename"),
+        State("store-project", "data"),
+        prevent_initial_call=True,
+    )
+    def _handle_setup_custom_db(contents, filename, project_data):
+        from databases.custom_db import CustomDBConfig
+
+        if not contents or not filename:
+            raise PreventUpdate
+        name = (filename or "").lower()
+        if not name.endswith((".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz")):
+            return html.Div("Unsupported file. Please use .fasta, .fa or .fasta.gz.", className="badge badge-amber"), no_update
+        project = resolve_project_data(project_data)
+        project_name = project.get("project_name") or "project"
+        db_dir = Path("projects") / slugify(project_name) / "custom_dbs"
+        db_dir.mkdir(parents=True, exist_ok=True)
+        dest = db_dir / Path(filename).name
+        try:
+            dest.write_bytes(decode_upload_content(contents))
+        except Exception as exc:
+            return html.Div(f"Could not read the upload: {exc}", className="badge badge-amber"), no_update
+        config = CustomDBConfig(dest)
+        valid, error = config.validate()
+        if not valid:
+            dest.unlink(missing_ok=True)
+            return html.Div(f"Invalid file: {error}", className="badge badge-amber"), no_update
+        if config.kind == "blast":
+            note = "Sequences will be compared against it with BLAST (blastn)."
+        else:
+            note = "Headers carry taxonomy (;tax=); it will be used for SINTAX classification."
+        status = html.Div(
+            [
+                html.Div(f"✓ {filename} loaded", style={"color": "#3fb950", "fontWeight": "700"}),
+                html.Div(note, className="empty-state-sub"),
+                html.Div("Run the pipeline (or the Databases stage) to see the comparison.", className="empty-state-sub"),
+            ],
+            style={"padding": "8px 10px", "borderRadius": "8px", "background": "rgba(63,185,80,0.10)", "border": "1px solid rgba(63,185,80,0.35)"},
+        )
+        return status, {"path": str(dest), "kind": config.kind, "filename": filename}
+
+    @app.callback(
+        Output("setup-preflight", "children"),
+        Input("store-samples", "data"),
+        Input("setup-db-sources", "value"),
+        Input("setup-analysis-method", "value"),
+        Input("setup-primer-preset", "value"),
+        Input("setup-primer-fwd", "value"),
+        Input("setup-primer-rev", "value"),
+    )
+    def _render_preflight(samples_data, db_sources, analysis_method, primer_preset, primer_fwd, primer_rev):
+        """What this machine can and cannot do with the run as configured.
+
+        The OOM killer gives no warning and leaves no error of its own: it SIGKILLs
+        whichever process is biggest, which on this pipeline is either a VSEARCH
+        SINTAX search or the Dash server itself (that is what surfaces in the browser
+        as "Callback failed: the server did not respond"). Saying so before the run
+        is the only way the user can act on it.
+
+        The primers are inputs because they change the verdict: with them, SILVA/PR2 are
+        cut to the amplicon and fit; without them, they are skipped.
+        """
+        from analysis.vsearch_runner import PRIMER_PRESETS
+        from core.config import get_db_paths
+        from core.preflight import available_memory_bytes, max_samples_for_memory, preflight_notes, total_memory_bytes
+        from databases.reference_filter import marker_filter_applies, resolve_marker
+
+        samples = [s for s in (samples_data or {}).get("samples", []) if s.get("selected", True)]
+        n_samples = len(samples)
+        available = available_memory_bytes()
+        total = total_memory_bytes()
+        limit = max_samples_for_memory(available)
+
+        marker = resolve_marker(s.get("marker") for s in samples)
+        forward = str(primer_fwd or "").strip()
+        reverse = str(primer_rev or "").strip()
+        if not (forward or reverse):
+            # Mirror what the run will actually do, including "auto" resolving from the
+            # marker — otherwise the preflight advises on primers the run will not use.
+            from preprocess.cutadapt_runner import AUTO_PRESET, MARKER_DEFAULT_PRESET
+
+            preset = AUTO_PRESET if primer_preset is None else str(primer_preset).strip()
+            if preset == AUTO_PRESET:
+                preset = MARKER_DEFAULT_PRESET.get(marker, "")
+            if preset in PRIMER_PRESETS:
+                forward, reverse = PRIMER_PRESETS[preset]
+        marker_filter = marker if marker_filter_applies(marker, (forward, reverse)) else ""
+
+        notes = preflight_notes(
+            db_sources or [],
+            get_db_paths(),
+            n_samples,
+            analysis_method or "",
+            marker_filter=marker_filter,
+        )
+
+        pills = [
+            html.Div(f"{n_samples} amostra(s) selecionada(s)", className="status-pill"),
+            html.Div(f"Máximo recomendado: {limit}", className="status-pill"),
+        ]
+        if total and available:
+            pills.append(html.Div(f"RAM: {available / 1e9:.1f} GB livre de {total / 1e9:.1f} GB", className="status-pill"))
+
+        children = [
+            html.Div("Recursos da máquina", className="card-title"),
+            html.Div(pills, className="chip-list"),
+        ]
+        for note in notes:
+            children.append(
+                html.Div(
+                    note,
+                    className="mini-note",
+                    style={
+                        "padding": "8px 10px",
+                        "borderRadius": "8px",
+                        "background": "rgba(210,153,34,0.10)",
+                        "border": "1px solid rgba(210,153,34,0.35)",
+                        "marginTop": "8px",
+                    },
+                )
+            )
+        if not notes:
+            children.append(html.Div("Sem problemas de memória previstos para esta configuração.", className="mini-note"))
+        return html.Div(children, className="card card-body", style={"marginBottom": "12px"})
+
+    @app.callback(
         Output("vsearch-params-panel", "style"),
         Output("dada2-params-panel", "style"),
         Input("setup-analysis-method", "value"),
@@ -129,6 +260,7 @@ def register_callbacks(app: Any) -> None:
         Output("url", "pathname", allow_duplicate=True),
         Output("setup-run-status", "children", allow_duplicate=True),
         Output("store-samples", "data", allow_duplicate=True),
+        Output("progress-interval", "disabled", allow_duplicate=True),
         Input("btn-run-pipeline", "n_clicks"),
         State("store-project", "data"),
         State("store-samples", "data"),
@@ -143,6 +275,10 @@ def register_callbacks(app: Any) -> None:
         State("setup-vsearch-maxee", "value"),
         State("setup-vsearch-minlen", "value"),
         State("setup-vsearch-sintax", "value"),
+        State("setup-vsearch-minsize", "value"),
+        State("setup-primer-preset", "value"),
+        State("setup-primer-fwd", "value"),
+        State("setup-primer-rev", "value"),
         State("setup-dada2-truncF", "value"),
         State("setup-dada2-truncR", "value"),
         State("setup-dada2-maxeeF", "value"),
@@ -166,6 +302,7 @@ def register_callbacks(app: Any) -> None:
         State("setup-raxml-bootstraps", "value"),
         State("setup-threads", "value"),
         State("setup-workers", "value"),
+        State("store-custom-db", "data"),
         prevent_initial_call=True,
     )
     def _run_pipeline(n_clicks,
@@ -182,6 +319,10 @@ def register_callbacks(app: Any) -> None:
                       v_maxee,
                       v_minlen,
                       v_sintax,
+                      v_minsize,
+                      primer_preset,
+                      primer_fwd,
+                      primer_rev,
                       d_truncF,
                       d_truncR,
                       d_maxeeF,
@@ -205,24 +346,10 @@ def register_callbacks(app: Any) -> None:
                       raxml_bootstraps,
                       threads,
                       workers,
+                      custom_db_store,
     ):
         import sys
         import traceback
-
-        print(
-            "SETUP RUN CLICKED:",
-            {
-                "n_clicks": n_clicks,
-                "workflow_mode": workflow_mode,
-                "analysis_method": analysis_method,
-                "enable_qc": enable_qc,
-                "enable_preprocess": enable_preprocess,
-                "enable_analysis": enable_analysis,
-                "enable_databases": enable_databases,
-                "enable_phylo": enable_phylo,
-            },
-            flush=True,
-        )
 
         try:
             return _run_pipeline_inner(
@@ -240,6 +367,10 @@ def register_callbacks(app: Any) -> None:
                 v_maxee,
                 v_minlen,
                 v_sintax,
+                v_minsize,
+                primer_preset,
+                primer_fwd,
+                primer_rev,
                 d_truncF,
                 d_truncR,
                 d_maxeeF,
@@ -263,13 +394,14 @@ def register_callbacks(app: Any) -> None:
                 raxml_bootstraps,
                 threads,
                 workers,
+                custom_db_store,
             )
         except PreventUpdate:
             raise
         except Exception as exc:
             print(f"CALLBACK ERROR: {exc}", file=sys.stderr, flush=True)
             traceback.print_exc(file=sys.stderr)
-            return no_update, no_update, no_update, str(exc), no_update
+            return no_update, no_update, no_update, str(exc), no_update, no_update
 
     def _run_pipeline_inner(n_clicks,
                             project_data,
@@ -285,6 +417,10 @@ def register_callbacks(app: Any) -> None:
                             v_maxee,
                             v_minlen,
                             v_sintax,
+                            v_minsize,
+                            primer_preset,
+                            primer_fwd,
+                            primer_rev,
                             d_truncF,
                             d_truncR,
                             d_maxeeF,
@@ -308,6 +444,7 @@ def register_callbacks(app: Any) -> None:
                             raxml_bootstraps,
                             threads,
                             workers,
+                            custom_db_store=None,
     ):
         if not n_clicks:
             raise PreventUpdate
@@ -328,7 +465,7 @@ def register_callbacks(app: Any) -> None:
 
         if workflow_mode == "special" and sum(1 for v in enabled_stages.values() if v) < 2:
             warning = html.Div("Special mode requires at least 2 enabled stages.", className="status-pill badge badge-amber")
-            return no_update, no_update, no_update, warning
+            return no_update, no_update, no_update, warning, no_update, no_update
 
         all_samples = _samples_list(samples_data)
         selected_samples = [s for s in all_samples if s.get("selected", True)]
@@ -337,51 +474,58 @@ def register_callbacks(app: Any) -> None:
                 "Select at least one sample before running the pipeline.",
                 className="status-pill badge badge-amber",
                 )
-            return no_update, no_update, no_update, warning
+            return no_update, no_update, no_update, warning, no_update, no_update
         samples_data_filtered = {**(samples_data or {}), "samples": selected_samples}
         run_config = build_run_config(project_data, samples_data_filtered)
         run_config.enabled_stages = enabled_stages
-
-        print(
-            "RUN CONFIG BUILT:",
-            {
-                "run_id": run_config.run_id,
-                "n_samples": len(run_config.samples),
-                "branch": getattr(run_config.branch, "value", str(run_config.branch)),
-                "analysis_method": run_config.analysis_method,
-                "enabled_stages": run_config.enabled_stages,
-            },
-            flush=True,
-        )
 
         # Preprocess params
         run_config.pear_params.update({
             "min_overlap": pear_min_overlap,
             "min_length": pear_min_length,
-            "pvalue": pear_pvalue,
+            "p_value": pear_pvalue,
         })
+        window_size, window_quality = run_config.trimmomatic_params.get("window_size", 4), run_config.trimmomatic_params.get("window_quality", 20)
+        if trim_slidingwindow and ":" in str(trim_slidingwindow):
+            raw_size, raw_quality = str(trim_slidingwindow).split(":", 1)
+            try:
+                window_size, window_quality = int(raw_size), int(raw_quality)
+            except ValueError:
+                pass
         run_config.trimmomatic_params.update({
             "leading": trim_leading,
             "trailing": trim_trailing,
-            "slidingwindow": trim_slidingwindow,
+            "window_size": window_size,
+            "window_quality": window_quality,
             "minlen": trim_minlen,
         })
 
         # VSEARCH params
         run_config.vsearch_params.update({
             "id": v_id,
-            "maxee": v_maxee,
-            "minlen": v_minlen,
-            "sintax": v_sintax,
-            "threads": int(threads) if threads else None,
+            "fastq_maxee": v_maxee,
+            "fastq_minlen": v_minlen,
+            # Empty control -> the configured default, not a literal typed here. This
+            # line's hardcoded 1 disagreed with the runner's hardcoded 2, so the policy
+            # depended on the entry point.
+            "min_unique_size": int(v_minsize) if v_minsize else MIN_UNIQUE_SIZE,
+            # PCR primers: Trimmomatic strips sequencing adapters, not these. When set,
+            # the Preprocess stage removes them with cutadapt (sequence-aware, before
+            # trimming); if cutadapt is absent the Analysis stage falls back to a
+            # fixed-length strip. Left in entirely, the primer's degenerate positions
+            # would be clustered as if they were biology.
+            "primer_preset": primer_preset or "",
+            "primer_fwd": (primer_fwd or "").strip(),
+            "primer_rev": (primer_rev or "").strip(),
+            "threads": int(threads) if threads else run_config.vsearch_params.get("threads", 8),
         })
 
         # DADA2 params
         run_config.dada2_params.update({
-            "truncF": d_truncF,
-            "truncR": d_truncR,
-            "maxeeF": d_maxeeF,
-            "maxeeR": d_maxeeR,
+            "truncLen_F": d_truncF,
+            "truncLen_R": d_truncR,
+            "maxEE_F": d_maxeeF,
+            "maxEE_R": d_maxeeR,
         })
 
         # Databases
@@ -407,6 +551,14 @@ def register_callbacks(app: Any) -> None:
         run_config.vsearch_params["species_threshold"] = species_threshold
         run_config.analysis_method = analysis_method or run_config.analysis_method
         run_config.vsearch_params["workers"] = int(workers) if workers else None
+
+        # Custom (user-uploaded) reference database — carried from the upload store
+        # so "Run Pipeline" compares each OTU/ASV against it in the Databases stage.
+        custom_db_store = custom_db_store or {}
+        custom_db_path = custom_db_store.get("path")
+        if custom_db_path and Path(custom_db_path).exists():
+            run_config.vsearch_params["custom_db_path"] = custom_db_path
+            run_config.vsearch_params["custom_db_kind"] = custom_db_store.get("kind") or ""
         
 
         project_store = dict(project_data or {})
@@ -418,21 +570,13 @@ def register_callbacks(app: Any) -> None:
             projects[active_id]["samples"] = selected_samples
             project_store = {"active_id": active_id, "projects": projects}
         
-        print("DB SOURCES RAW:", db_sources, flush=True)
-        print("RUN CONFIG VSEARCH PARAMS:", run_config.vsearch_params, flush=True)
-
         config_data = serialize_run_config(run_config)
         config_data["db_sources"] = list(db_sources or [])
         config_data["workflow_mode"] = workflow_mode
-        print(
-            "SETUP RETURN:",
-            {
-                "config_has_db_sources": "db_sources" in config_data,
-                "config_keys": list(config_data.keys()),
-                "project_active_id": project_store.get("active_id"),
-                "project_keys": list(project_store.keys()),
-                "pathname": "/progress",
-            },
-            flush=True,
-        )
-        return config_data, project_store, "/progress", "", samples_data
+        # "Run Pipeline" now actually runs the pipeline: launch the background
+        # thread here instead of leaving it to a second, separate click on the
+        # Progress page's "Start Pipeline" button.
+        _launch_pipeline_run(run_config, config_data)
+        # Re-arm the progress poller: it disables itself when a run finishes, so
+        # without this a second run never publishes its stage records to the stores.
+        return config_data, project_store, "/progress", "", samples_data, False

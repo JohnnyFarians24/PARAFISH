@@ -7,12 +7,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from dash import Input, Output, State, ctx, html, no_update
+from dash.exceptions import PreventUpdate
 from dash import ALL
 
+from core.project_store import load_all_projects, load_project_bundle, save_project_bundle
 from ui.pipeline_state import get_stage_record, stage_status
 from ui.components.sidebar import render_sidebar
 from ui.components.topbar import render_topbar
-from ui.runtime_state import resolve_project_data
+from ui.runtime_state import resolve_project_data, restore_run_state
 
 from ui.pages.page_analysis import layout as analysis_layout
 from ui.pages.page_databases import layout as databases_layout
@@ -123,6 +125,55 @@ def _results_status(step_outputs: dict | None, enabled_stages: dict | None) -> s
 	return "done" if active_records and all(stage_status(record) == "success" for record in active_records) else "pending"
 
 
+def _selected_sample_count(samples_data) -> int:
+	samples = (samples_data or {}).get("samples") if isinstance(samples_data, dict) else None
+	return sum(1 for sample in (samples or []) if (sample or {}).get("selected", True))
+
+
+def _active_project_banner(project_store, samples_data):
+	"""A prominent 'which project am I working on' strip for Samples and Setup.
+
+	The active project used to show only in the corner badge, so it was easy to create
+	a fresh project, upload into a different one that was still active, and run the
+	wrong data without noticing. This states it in-flow, at the top of the page.
+	"""
+	active = resolve_project_data(project_store)
+	name = active.get("project_name") or active.get("name")
+	if not name:
+		return html.Div(
+			[
+				html.Span("⚠ Nenhum projeto ativo", className="badge badge-amber"),
+				html.A("Criar ou selecionar projeto →", href="/project", style={"color": "var(--blue)", "marginLeft": "10px"}),
+			],
+			className="control-row",
+			style={"marginBottom": "12px", "alignItems": "center"},
+		)
+	return html.Div(
+		[
+			html.Span("Projeto ativo", className="logo-subtext"),
+			html.Span(str(name), className="badge badge-green"),
+			html.Span(f"{_selected_sample_count(samples_data)} amostra(s)", className="status-pill"),
+		],
+		className="control-row",
+		style={"marginBottom": "12px", "alignItems": "center", "gap": "10px"},
+	)
+
+
+def _run_target_note(project_store, samples_data):
+	"""One line, next to Run, naming exactly which project and how many samples run."""
+	active = resolve_project_data(project_store)
+	name = active.get("project_name") or active.get("name")
+	if not name:
+		return html.Div(html.Span("Sem projeto ativo — cria um antes de correr.", className="badge badge-amber"), className="mini-note")
+	count = _selected_sample_count(samples_data)
+	if count == 0:
+		return html.Div(
+			[html.Span("Vais correr o projeto "), html.B(str(name)), html.Span(" — "), html.Span("sem amostras selecionadas", className="badge badge-amber")],
+			className="mini-note",
+		)
+	return html.Div([html.Span("Vais correr o projeto "), html.B(str(name)), html.Span(f" · {count} amostra(s)")], className="mini-note")
+
+
 def register_callbacks(app: Any) -> None:
 
 	@app.callback(
@@ -155,7 +206,12 @@ def register_callbacks(app: Any) -> None:
 			"run_id": f"run_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}",
 		}
 		store = {"active_id": proj_id, "projects": projects}
-		return store, {}, no_update
+		save_project_bundle(proj_id, projects[proj_id], {})
+		# Move the user to the next step. Creating the project used to leave them on this
+		# page with no navigation, no confirmation and a session panel still reading
+		# "empty until a project is selected" — so the button looked broken even though it
+		# had worked. A new project has no samples, and samples are what it needs next.
+		return store, {}, "/samples"
 
 	@app.callback(
 		Output("store-project", "data", allow_duplicate=True),
@@ -183,7 +239,79 @@ def register_callbacks(app: Any) -> None:
 			"run_id": "example_run",
 		}
 		store = {"active_id": proj_id, "projects": projects}
-		return store, {}, no_update
+		return store, {}, "/samples"
+
+	@app.callback(
+		Output("project-session-state-info", "children"),
+		Input("store-project", "data"),
+		Input("store-samples", "data"),
+		Input("store-run-config", "data"),
+	)
+	def _render_session_state(project_store, samples_data, run_config_data):
+		"""What is loaded right now, and what to do next.
+
+		This panel used to be a hard-coded placeholder — no callback ever wrote to it, so
+		it read "Session state is empty until a project is selected" forever, including
+		immediately after you had just selected a project. That is what made a working
+		"Create project" look like a dead button.
+		"""
+		from ui.components.cards import status_badge
+
+		store = project_store or {}
+		active_id = store.get("active_id")
+		project = (store.get("projects") or {}).get(active_id) if active_id else None
+
+		if not project:
+			return html.Div(
+				[
+					html.Div("Nenhum projeto ativo.", className="empty-state-sub"),
+					html.Div("Cria um projeto acima, ou carrega um dos recentes.", className="mini-note"),
+				]
+			)
+
+		samples = [s for s in (samples_data or {}).get("samples", []) if s.get("selected", True)]
+		run_id = (run_config_data or {}).get("run_id")
+
+		# The next action, stated plainly. A project with no samples cannot run, and the
+		# UI never said so.
+		if not samples:
+			next_step = html.Div(
+				[
+					html.Span("Próximo passo: "),
+					html.A("adicionar amostras →", href="/samples", style={"color": "var(--blue)"}),
+				],
+				className="mini-note",
+			)
+		else:
+			next_step = html.Div(
+				[
+					html.Span("Próximo passo: "),
+					html.A("configurar e correr →", href="/setup", style={"color": "var(--blue)"}),
+				],
+				className="mini-note",
+			)
+
+		return html.Div(
+			[
+				html.Div(
+					[
+						html.Div(project.get("project_name") or project.get("name") or active_id, style={"fontWeight": "600"}),
+						status_badge("success" if samples else "pending", label="pronto" if samples else "sem amostras"),
+					],
+					style={"display": "flex", "alignItems": "center", "gap": "10px"},
+				),
+				html.Div(
+					[
+						html.Div(f"{len(samples)} amostra(s) selecionada(s)", className="status-pill"),
+						html.Div(f"Modo: {project.get('mode', 'Complete')}", className="status-pill"),
+						*([html.Div(f"Run: {run_id}", className="status-pill")] if run_id else []),
+					],
+					className="chip-list",
+					style={"marginTop": "8px"},
+				),
+				next_step,
+			]
+		)
 
 	@app.callback(
 		Output("recent-projects-list", "children"),
@@ -213,6 +341,44 @@ def register_callbacks(app: Any) -> None:
 		return _card(n_projects, "Projects"), _card(n_samples, "Samples"), _card(n_modes, "Active modes")
 
 	@app.callback(
+		Output("store-run-config", "data", allow_duplicate=True),
+		Output("store-qc-outputs", "data", allow_duplicate=True),
+		Output("store-preprocess-outputs", "data", allow_duplicate=True),
+		Output("store-analysis-outputs", "data", allow_duplicate=True),
+		Output("store-databases-outputs", "data", allow_duplicate=True),
+		Output("store-phylo-outputs", "data", allow_duplicate=True),
+		Input("store-project", "data"),
+		State("store-run-config", "data"),
+		State("store-qc-outputs", "data"),
+		State("store-preprocess-outputs", "data"),
+		State("store-analysis-outputs", "data"),
+		State("store-databases-outputs", "data"),
+		State("store-phylo-outputs", "data"),
+		prevent_initial_call="initial_duplicate",
+	)
+	def _restore_last_run(project_data, run_config, qc, preprocess, analysis, databases, phylo):
+		"""Reload the project's newest run from disk when the session stores are empty.
+
+		The stage stores are per-session, so restarting the app or opening a new tab
+		wiped every result even though the run was still on disk — the Results page
+		then had no stages to offer. Restoring is skipped whenever any store already
+		holds something, so a run in progress is never clobbered.
+		"""
+		if any(bool(store) for store in (run_config, qc, preprocess, analysis, databases, phylo)):
+			raise PreventUpdate
+		restored = restore_run_state(project_data)
+		if not restored:
+			raise PreventUpdate
+		return (
+			restored["run_config"],
+			restored["qc"],
+			restored["preprocess"],
+			restored["analysis"],
+			restored["databases"],
+			restored["phylo"],
+		)
+
+	@app.callback(
 		Output("page-project", "style"),
 		Output("page-samples", "style"),
 		Output("page-setup", "style"),
@@ -224,27 +390,14 @@ def register_callbacks(app: Any) -> None:
 		Output("page-progress", "style"),
 		Output("page-results", "style"),
 		Input("url", "pathname"),
-		State("store-run-config", "data"),
-		State("store-qc-outputs", "data"),
-		State("store-preprocess-outputs", "data"),
-		State("store-analysis-outputs", "data"),
-		State("store-databases-outputs", "data"),
-		State("store-phylo-outputs", "data"),
 	)
-	def _route(pathname, run_config_data, qc_outputs, preprocess_outputs, analysis_outputs, databases_outputs, phylo_outputs):
-		print("ROUTE PATHNAME:", pathname, flush=True)
+	def _route(pathname):
 		pathname = pathname or "/project"
 		visible = {"display": "block"}
 		hidden = {"display": "none"}
-		step_outputs = {
-			"qc": qc_outputs or {},
-			"preprocess": preprocess_outputs or {},
-			"analysis": analysis_outputs or {},
-			"databases": databases_outputs or {},
-			"phylo": phylo_outputs or {},
-		}
-		enabled_stages = (run_config_data or {}).get("enabled_stages", {}) if isinstance(run_config_data, dict) else {}
-		results_state = _results_status(step_outputs, enabled_stages)
+		# Exactly one page is visible at a time. The Results page used to also be
+		# shown whenever the run had finished, so it appended itself to the bottom
+		# of every other stage page.
 		return (
 			visible if pathname in {"/", "/project"} else hidden,
 			visible if pathname == "/samples" else hidden,
@@ -255,13 +408,16 @@ def register_callbacks(app: Any) -> None:
 			visible if pathname == "/databases" else hidden,
 			visible if pathname == "/phylo" else hidden,
 			visible if pathname == "/progress" else hidden,
-			visible if pathname == "/results" or results_state == "done" else hidden,
+			visible if pathname == "/results" else hidden,
 		)
 
 
 	def _render_recent_projects(store):
 		store = store or {}
-		projects = store.get("projects") or {}
+		# Union the browser store with projects persisted on disk, so previously
+		# created projects show up even in a fresh browser / after a restart.
+		projects = dict(load_all_projects())
+		projects.update(store.get("projects") or {})
 		active_id = store.get("active_id")
 		if not projects:
 			return html.Div("No projects yet.", className="empty-state-sub")
@@ -302,20 +458,59 @@ def register_callbacks(app: Any) -> None:
 			return no_update, no_update, no_update
 		proj_id = triggered.get("index")
 		store = current_store or {"active_id": None, "projects": {}}
-		if proj_id in (store.get("projects") or {}):
-			store = {"active_id": proj_id, "projects": dict(store.get("projects", {}))}
-			return store, {}, no_update
-		return no_update, no_update, no_update
+		projects = dict(load_all_projects())
+		projects.update(store.get("projects") or {})
+		if proj_id not in projects:
+			return no_update, no_update, no_update
+		# Restore the project's persisted samples so a reopened project is usable,
+		# not wiped (the store is per-browser and does not keep per-project samples).
+		disk_project, disk_samples = load_project_bundle(proj_id)
+		if disk_project:
+			projects[proj_id] = disk_project
+		store = {"active_id": proj_id, "projects": projects}
+		return store, (disk_samples or {}), no_update
 
 	@app.callback(
 		Output("topbar", "children"),
 		Input("store-project", "data"),
+		Input("store-run-config", "data"),
 	)
-	def sync_topbar(store):
+	def sync_topbar(store, run_config_data):
 		active_project = resolve_project_data(store)
 		project_name = active_project.get("project_name", "")
-		mode = active_project.get("mode", "Complete")
-		return render_topbar(project_name=project_name, mode=mode, docker_ok=False)
+		# The run-config is the source of truth for the mode the pipeline actually runs
+		# under: the Setup page writes ``workflow_mode`` there when "Run Pipeline" is
+		# pressed. The project record's ``mode`` is only the creation-time default
+		# ("Complete") and would leave the badge stuck on it even after a Special run.
+		mode = ""
+		if isinstance(run_config_data, dict):
+			mode = run_config_data.get("workflow_mode") or ""
+		mode = mode or active_project.get("mode") or "Complete"
+		return render_topbar(project_name=project_name, mode=str(mode).capitalize(), docker_ok=False)
+
+	@app.callback(
+		Output("samples-active-project", "children"),
+		Input("store-project", "data"),
+		Input("store-samples", "data"),
+	)
+	def _samples_active_project(project_store, samples_data):
+		return _active_project_banner(project_store, samples_data)
+
+	@app.callback(
+		Output("setup-active-project", "children"),
+		Input("store-project", "data"),
+		Input("store-samples", "data"),
+	)
+	def _setup_active_project(project_store, samples_data):
+		return _active_project_banner(project_store, samples_data)
+
+	@app.callback(
+		Output("setup-run-target", "children"),
+		Input("store-project", "data"),
+		Input("store-samples", "data"),
+	)
+	def _setup_run_target(project_store, samples_data):
+		return _run_target_note(project_store, samples_data)
 
 	@app.callback(
 		Output("sidebar", "children"),

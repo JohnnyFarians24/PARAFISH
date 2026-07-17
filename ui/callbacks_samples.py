@@ -345,13 +345,22 @@ def register_callbacks(app: Any) -> None:
 					sample["r1_path"] = match["path"]
 					sample["paths"]["r1"] = match["path"]
 			sample["r2_path"] = sample.get("r2_path") or None
+		samples_store = {
+			"files": merged_files,
+			"samples": merged_samples,
+			"run_root": str(run_root),
+			"updated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+		}
+		# Persist samples into the active project so they survive a project switch,
+		# browser restart, or a different machine.
+		active_id = (project_data or {}).get("active_id")
+		active_project = ((project_data or {}).get("projects") or {}).get(active_id)
+		if active_id and active_project is not None:
+			from core.project_store import save_project_bundle
+
+			save_project_bundle(active_id, active_project, samples_store)
 		return (
-			{
-				"files": merged_files,
-				"samples": merged_samples,
-				"run_root": str(run_root),
-				"updated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-			},
+			samples_store,
 			serialize_run_config(run_config),
 			status_children,
 		)
@@ -400,3 +409,51 @@ def register_callbacks(app: Any) -> None:
 				if sample.get("internal_id") == sample_index:
 					sample["selected"] = bool(values)
 		return {**samples_data, "samples": samples}
+
+	def _apply_per_sample_edit(values, samples_data, field, coerce):
+		"""Write one edited cell back into the sample store, keyed by pattern id.
+
+		Re-rendering the sample table recreates these inputs, which fires the
+		callback again with unchanged values. Bailing out when nothing actually
+		changed stops that from becoming an update loop.
+		"""
+		import json
+
+		if not callback_context.triggered or samples_data is None:
+			raise PreventUpdate
+		samples = (samples_data or {}).get("samples") or []
+		by_id = {sample.get("internal_id"): sample for sample in samples}
+		changed = False
+		for trigger, value in zip(callback_context.triggered, values):
+			try:
+				sample_index = json.loads(trigger["prop_id"].split(".")[0]).get("index")
+			except (ValueError, KeyError):
+				continue
+			sample = by_id.get(sample_index)
+			if sample is None:
+				continue
+			new_value = coerce(value)
+			if sample.get(field) != new_value:
+				sample[field] = new_value
+				changed = True
+		if not changed:
+			raise PreventUpdate
+		return {**samples_data, "samples": samples}
+
+	@app.callback(
+		Output("store-samples", "data", allow_duplicate=True),
+		Input({"type": "sample-control", "index": ALL}, "value"),
+		State("store-samples", "data"),
+		prevent_initial_call=True,
+	)
+	def _update_sample_control(control_values, samples_data):
+		return _apply_per_sample_edit(control_values, samples_data, "is_control", bool)
+
+	@app.callback(
+		Output("store-samples", "data", allow_duplicate=True),
+		Input({"type": "sample-group", "index": ALL}, "value"),
+		State("store-samples", "data"),
+		prevent_initial_call=True,
+	)
+	def _update_sample_group(group_values, samples_data):
+		return _apply_per_sample_edit(group_values, samples_data, "group", lambda value: (str(value).strip() or None) if value else None)

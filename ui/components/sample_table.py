@@ -25,10 +25,14 @@ def _marker_badge(marker: str):
 
 def render_sample_table(samples: list[dict] | None, selectable: bool = False):
 	rows = samples or []
-	headers = ["", "ID", "Label", "Mode", "Marker", "Status"] if selectable else ["ID", "Label", "Mode", "Marker", "Status"]
+	base_headers = ["ID", "Label", "Mode", "Marker", "Status"]
+	# Negative controls and experimental groups are only editable in the selectable
+	# view (where the run is configured); the read-only view just lists the samples.
+	headers = ["", *base_headers, "Control", "Group"] if selectable else base_headers
 	head = html.Thead(html.Tr([html.Th(col) for col in headers]))
 	body_rows = []
 	for idx, sample in enumerate(rows):
+		sample_id = sample.get("internal_id") or sample.get("internal_sample_id") or str(idx)
 		cells = []
 		if selectable:
 			cells.append(
@@ -36,7 +40,7 @@ def render_sample_table(samples: list[dict] | None, selectable: bool = False):
 					dcc.Checklist(
 						options=[{"label": "", "value": "selected"}],
 						value=["selected"] if sample.get("selected") else [],
-						id={"type": "sample-checkbox", "index": sample.get("internal_id") or sample.get("internal_sample_id") or str(idx)},
+						id={"type": "sample-checkbox", "index": sample_id},
 						style={"margin": "0"},
 					)
 				)
@@ -50,6 +54,30 @@ def render_sample_table(samples: list[dict] | None, selectable: bool = False):
 				html.Td(html.Span(sample.get("status", "pending"), className=f"badge badge-{sample.get('status_color', 'purple')}")),
 			]
 		)
+		if selectable:
+			cells.append(
+				html.Td(
+					dcc.Checklist(
+						options=[{"label": "", "value": "control"}],
+						value=["control"] if sample.get("is_control") else [],
+						id={"type": "sample-control", "index": sample_id},
+						style={"margin": "0"},
+					),
+					title="Negative / blank control: excluded from diversity, used to call contaminants",
+				)
+			)
+			cells.append(
+				html.Td(
+					dcc.Input(
+						id={"type": "sample-group", "index": sample_id},
+						value=sample.get("group") or "",
+						placeholder="e.g. site A",
+						debounce=True,
+						style={"width": "110px"},
+					),
+					title="Experimental group (site, host, treatment) used for grouped comparisons",
+				)
+			)
 		body_rows.append(html.Tr(cells))
 	if not body_rows:
 		body_rows.append(html.Tr(html.Td("No samples loaded yet.", colSpan=len(headers), className="empty-state-sub")))

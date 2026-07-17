@@ -111,7 +111,7 @@ PARAFISH/
 ├── analysis/               # VSEARCH, DADA2, and analysis pipeline runners
 ├── preprocess/             # Trimmomatic and PEAR runners
 ├── qc/                     # FastQC runner and QC plot generation
-├── phylo/                  # MAFFT, FastTree, RAxML-NG runners and phylogenetic plots
+├── phylo/                  # MAFFT, FastTree, RAxML-NG runners for tree inference
 ├── assets/                 # CSS and static assets for the Dash interface
 ├── scripts/                # Utility shell scripts
 ├── tests/                  # Test suite
@@ -128,7 +128,7 @@ PARAFISH/
 
 ## Input Data
 
-PARAFISH expects **paired-end Illumina FASTQ files** as primary input. Files can be uploaded directly through the web interface or placed in the `uploads/` directory before starting the container.
+PARAFISH accepts **single-end and paired-end Illumina FASTQ files**. Paired-end reads are detected automatically from their `_R1`/`_R2` filenames. Files can be uploaded directly through the web interface or placed in the `uploads/` directory before starting the container.
 
 Supported formats: `.fastq`, `.fastq.gz`, `.fq`, `.fq.gz`
 
@@ -147,6 +147,28 @@ The platform guides the user through a modular pipeline:
 5. **Taxonomic Classification** — against SILVA, PR2, NCBI, BOLD, or a custom database
 6. **Phylogenetic Analysis** — multiple sequence alignment (MAFFT) and tree inference (FastTree or RAxML-NG)
 7. **Results and Visualisation** — interactive plots and downloadable outputs
+
+### Custom database comparison (BLAST)
+
+In the **Databases** stage you can upload your own reference FASTA and compare
+every OTU/ASV against it:
+
+- **Plain reference FASTA** (e.g. a curated COI/18S set) is turned into a local
+  BLAST database (`makeblastdb`) and the run's representative sequences are
+  aligned to it with `blastn`, keeping the single best hit per OTU/ASV.
+- **SINTAX-formatted FASTA** (headers with `;tax=…`) is folded into the taxonomy
+  consensus alongside SILVA/PR2.
+
+The comparison produces, viewable directly in the app and downloadable as CSV:
+
+- a **per-OTU table** showing the custom-DB match next to the public-database
+  consensus call — OTUs with no hit are flagged **`None` in red**;
+- a **taxon × sample detection heatmap** (relative abundance) with an explicit
+  **`No match`** row, scaling from dozens to hundreds of samples;
+- a **matched/unmatched** summary donut.
+
+Interactive filters let you set a **minimum percent identity** and **filter by
+species** to tighten the comparison.
 
 Each step is independent. Users can enter the workflow at any stage if upstream results are already available.
 
@@ -180,19 +202,42 @@ Verify that `DB_SILVA_PATH` and `DB_PR2_PATH` in `.env` point to the actual file
 **Port 8050 already in use**
 Change the port mapping in `docker-compose.yml` from `"8050:8050"` to e.g. `"8051:8050"` and access the app at `http://localhost:8051`.
 
-**Pipeline does not advance after sample selection**
-This is a known issue under active development. Check the browser console for errors and report via GitHub Issues.
+**BOLD classification is skipped**
+BOLD requires a registered [BOLD Systems](https://boldsystems.org/) account. Set `BOLD_USERNAME` and `BOLD_PASSWORD` in `.env`; when they are missing, BOLD is skipped cleanly and the rest of the pipeline continues.
 
 ---
 
 ## Development Status
 
-PARAFISH is under active development. The current release supports the full pipeline described above, with the following known limitations:
+PARAFISH is under active development. The current release runs the full pipeline described above end-to-end. Known limitations:
 
+HEAD
 - BOLD parameter visibility in the UI has a CSS rendering issue (fix in progress)
 - Output visualisation within the app is not yet fully functional; outputs remain accessible as files in `RUNS_DIR`
 - Custom database support is not yet available in this release
 - Not all pipeline outputs are currently visible within the app interface; full in-app result rendering is under development
+
+- In-app visualisation of results is still limited; primary outputs (trees, tables, FASTA, logs) remain accessible as downloadable files under `RUNS_DIR` and via the per-run ZIP export.
+- Classifying against the complete SILVA database with VSEARCH is memory-intensive; on machines with little RAM the indexing step can be killed by the OS. Use a machine with adequate memory or a reduced reference for large runs.
+- BOLD and NCBI classification depend on external services/accounts and are disabled by default.
+
+Contributions, bug reports, and feature requests are welcome via [GitHub Issues](https://github.com/JohnnyFarians24/PARAFISH/issues).
+
+---
+
+## Citation
+
+If you use PARAFISH in your research, please cite this repository and the underlying tools (VSEARCH, SILVA, PR2, RAxML-NG, MAFFT) according to their respective publications.
+
+---
+
+## License
+
+This project is currently unlicensed. Contact the author for usage permissions.
+
+
+
+Migrate UI to feature-set layout; add headless runner
 
 
 

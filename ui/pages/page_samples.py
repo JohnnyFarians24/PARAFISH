@@ -11,6 +11,7 @@ def layout():
 	return html.Div(
 		[
 			html.Div([html.Div("Samples", className="page-title"), html.Div("Upload FASTQ files and inspect the detected sample structure.", className="page-sub")], className="page-header"),
+			html.Div(id="samples-active-project"),
 			html.Div(
 				[
 				dcc.Upload(

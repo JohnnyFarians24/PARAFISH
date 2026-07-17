@@ -2,22 +2,24 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-from dash import Input, Output, State, dash_table, html, no_update
+from dash import Input, Output, State, dash_table, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from core.models import AnalysisMode
 from qc.fastqc_runner import run_fastqc
+from ui.components.table import STYLE_CELL, data_table
 from ui.pipeline_state import _normalize_store, get_stage_record, stage_ready, stage_status, utc_now_iso
-from ui.runtime_state import run_config_from_store, serialize_step_output
+from ui.runtime_state import resolve_project_data, run_config_from_store, serialize_step_output
 
 
 def build_qc_summary(*args, **kwargs):
     """Build a small QC readiness summary from shared store data."""
     samples_data = kwargs.get("samples_data")
     step_outputs = kwargs.get("step_outputs") or {}
-    project_data = kwargs.get("project_data") or {}
+    project_data = resolve_project_data(kwargs.get("project_data") or {})
     stage_record = get_stage_record(step_outputs, "qc")
     sample_count = len((samples_data or {}).get("samples", []))
     output_count = len((stage_record or {}).get("outputs", {}))
@@ -31,6 +33,75 @@ def build_qc_summary(*args, **kwargs):
             html.Div(f"{output_count} finished step output(s) cached", className="mini-note"),
         ],
         className="chip-list",
+    )
+
+
+def _qc_metric_paths(qc_data, run_config_data) -> dict[str, str]:
+    """Locate the QC tables the runner persisted.
+
+    Prefers the paths recorded on the stage record; falls back to the conventional
+    location under the run's output directory so runs recorded before the metrics
+    layer existed still render.
+    """
+    record = _normalize_store(qc_data)
+    recorded = record.get("metrics_files") or {}
+    paths = {key: value for key, value in recorded.items() if isinstance(value, str) and Path(value).exists()}
+    if paths:
+        return paths
+    output_dir = (run_config_data or {}).get("output_dir")
+    if not output_dir:
+        return {}
+    from qc.qc_metrics import build_qc_metrics, qc_metrics_paths
+
+    qc_dir = Path(output_dir) / "qc"
+    existing = qc_metrics_paths(qc_dir)
+    if existing:
+        return {key: str(path) for key, path in existing.items()}
+    # Runs recorded before the metrics layer existed have the FastQC zips but no
+    # tables. Build them once and leave them on disk; this is a cache fill, not a
+    # per-render recompute.
+    try:
+        return {key: str(path) for key, path in build_qc_metrics(qc_dir).items()}
+    except Exception:
+        return {}
+
+
+_MODULE_STATUS_SYMBOL = {"pass": "●", "warn": "▲", "fail": "✕"}
+_MODULE_STATUS_COLOR = {"pass": "var(--green)", "warn": "var(--amber)", "fail": "var(--red)"}
+
+
+def _module_status_panel(status_csv: str):
+    """Traffic-light grid of every FastQC module, per sample x read."""
+    import pandas as pd
+
+    try:
+        status = pd.read_csv(status_csv)
+    except Exception:
+        return html.Div()
+    if status.empty:
+        return html.Div()
+
+    modules = list(dict.fromkeys(status["module"]))
+    header = html.Tr([html.Th("Sample / read"), *[html.Th(module, style={"fontSize": "11px"}) for module in modules]])
+    body = []
+    for (sample, read), group in status.groupby(["sample", "read"], sort=True):
+        by_module = dict(zip(group["module"], group["status"]))
+        cells = [html.Td(f"{sample} {read}", className="mono-cell")]
+        for module in modules:
+            value = str(by_module.get(module, "")).lower()
+            cells.append(
+                html.Td(
+                    _MODULE_STATUS_SYMBOL.get(value, "–"),
+                    title=f"{module}: {value or 'n/a'}",
+                    style={"color": _MODULE_STATUS_COLOR.get(value, "var(--muted)"), "textAlign": "center", "fontWeight": "700"},
+                )
+            )
+        body.append(html.Tr(cells))
+    return html.Div(
+        [
+            html.Div("FastQC modules — ● pass · ▲ warn · ✕ fail", className="mini-note"),
+            html.Div(html.Table([html.Thead(header), html.Tbody(body)], className="parafish-table"), style={"overflowX": "auto"}),
+        ]
     )
 
 
@@ -52,6 +123,50 @@ def _qc_preflight(run_config) -> list[str]:
 
 def register_callbacks(app: Any) -> None:
     """Register QC callbacks in the Dash application."""
+
+    @app.callback(
+        Output("qc-plot-hero", "children"),
+        Output("qc-plots", "children"),
+        Input("store-qc-outputs", "data"),
+        State("store-run-config", "data"),
+    )
+    def _render_qc_plots(qc_out, run_config_data):
+        """Split the hero (read depth) from the secondary curves.
+
+        Read depth is the one plot that decides whether the run is usable, so it stays
+        on the page. The per-base quality curves and the length histogram are what you
+        consult *after* the headline tells you to look.
+        """
+        import pandas as pd
+
+        from ui.plots import qc_depth_box_figure, qc_length_distribution_figure, qc_per_base_quality_figure
+
+        def _graph(figure):
+            return dcc.Graph(figure=figure, config={"displaylogo": False, "responsive": True})
+
+        paths = _qc_metric_paths(qc_out, run_config_data)
+        empty = html.Div("Run QC to see per-sample quality plots.", className="empty-state-sub")
+        if not paths:
+            return empty, empty
+        try:
+            hero = qc_depth_box_figure(pd.read_csv(paths["qc_overview_csv"])) if "qc_overview_csv" in paths else None
+            secondary = [
+                qc_per_base_quality_figure(pd.read_csv(paths["qc_per_base_quality_csv"])) if "qc_per_base_quality_csv" in paths else None,
+                qc_length_distribution_figure(pd.read_csv(paths["qc_length_distribution_csv"])) if "qc_length_distribution_csv" in paths else None,
+            ]
+        except Exception as exc:
+            error = html.Div(f"QC plots unavailable: {exc}", className="empty-state-sub")
+            return error, error
+
+        hero_child = _graph(hero) if hero is not None else html.Div("No read-depth data yet.", className="empty-state-sub")
+        figures = [figure for figure in secondary if figure is not None]
+        detail_child = (
+            html.Div([_graph(fig) for fig in figures], style={"display": "flex", "flexDirection": "column", "gap": "12px"})
+            if figures
+            else html.Div("No FastQC metrics available yet.", className="empty-state-sub")
+        )
+        return hero_child, detail_child
+
     @app.callback(
         Output("qc-stat-total", "children"),
         Output("qc-stat-pass", "children"),
@@ -150,11 +265,18 @@ def register_callbacks(app: Any) -> None:
                 all_success = False
                 log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"FastQC failed: {sample.internal_id} -> {result.error_message or 'unknown error'}"})
 
+        try:
+            metrics_files = {key: str(path) for key, path in build_qc_metrics(run_config.output_dir / "qc").items()}
+        except Exception as exc:
+            metrics_files = {}
+            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Falha ao construir métricas de QC: {exc}"})
+
         record = {
             "signature": signature,
             "status": "success" if all_success else "failure",
             "updated_at": utc_now_iso(),
             "outputs": outputs,
+            "metrics_files": metrics_files,
             "log_lines": log_lines,
         }
         return build_qc_summary(project_data=project_data, samples_data=samples_data, step_outputs={"qc": record}), record
@@ -179,42 +301,60 @@ def register_callbacks(app: Any) -> None:
     @app.callback(
         Output("qc-sample-table", "children"),
         Input("store-qc-outputs", "data"),
+        State("store-run-config", "data"),
     )
-    def _render_qc_sample_table(qc_data):
-        qc_data = _normalize_store(qc_data)
-        outputs = _normalize_store(qc_data.get("outputs")) if qc_data else {}
-        if not outputs:
+    def _render_qc_sample_table(qc_data, run_config_data):
+        import pandas as pd
+
+        paths = _qc_metric_paths(qc_data, run_config_data)
+        if "qc_overview_csv" not in paths:
+            return html.Div("No QC results available yet.", className="empty-state-sub")
+        try:
+            overview = pd.read_csv(paths["qc_overview_csv"])
+        except Exception as exc:
+            return html.Div(f"QC overview unavailable: {exc}", className="empty-state-sub")
+        if overview.empty:
             return html.Div("No QC results available yet.", className="empty-state-sub")
 
-        rows = []
-        for sample_id, sample_data in outputs.items():
-            metrics = sample_data.get("metrics") or {}
-            rows.append(
-                {
-                    "Sample": sample_id,
-                    "Total Reads R1": metrics.get("total_sequences_r1", "—"),
-                    "Total Reads R2": metrics.get("total_sequences_r2", "—"),
-                    "GC% R1": metrics.get("pct_gc_r1", "—"),
-                    "GC% R2": metrics.get("pct_gc_r2", "—"),
-                    "Failed Modules": ", ".join(metrics.get("failed_modules") or []),
-                    "Status": "success" if sample_data.get("success") else "failure",
-                }
+        columns = [
+            {"name": "Sample", "id": "sample"},
+            {"name": "Read", "id": "read"},
+            {"name": "Total reads", "id": "total_reads", "type": "numeric", "format": {"specifier": ","}},
+            {"name": "%GC", "id": "pct_gc"},
+            {"name": "Mean length (bp)", "id": "mean_length"},
+            {"name": "%duplication", "id": "pct_duplication"},
+            {"name": "%adapter (max)", "id": "pct_adapter_max"},
+            {"name": "%reads mean Q≥30", "id": "pct_reads_q30"},
+            {"name": "FastQC fail", "id": "n_fail", "type": "numeric"},
+            {"name": "FastQC warn", "id": "n_warn", "type": "numeric"},
+        ]
+        conditional = [
+            {"if": {"filter_query": "{n_fail} > 0", "column_id": "n_fail"}, "color": "var(--red)", "fontWeight": "600"},
+            {"if": {"filter_query": "{n_warn} > 0", "column_id": "n_warn"}, "color": "var(--amber)", "fontWeight": "600"},
+            {"if": {"filter_query": "{pct_reads_q30} < 80", "column_id": "pct_reads_q30"}, "color": "var(--red)", "fontWeight": "600"},
+            {"if": {"filter_query": "{pct_adapter_max} > 5", "column_id": "pct_adapter_max"}, "color": "var(--amber)"},
+            {"if": {"filter_query": "{is_depth_outlier} = 1"}, "backgroundColor": "rgba(248,81,73,0.10)"},
+        ]
+        children = [
+            data_table(
+                overview.to_dict("records"),
+                columns,
+                conditional=conditional,
+                sort_action="native",
+                page_size=20,
+                style_cell={**STYLE_CELL, "whiteSpace": "normal", "height": "auto"},
             )
-
-        table = dash_table.DataTable(
-            data=rows,
-            columns=[
-                {"name": "Sample", "id": "Sample"},
-                {"name": "Total Reads R1", "id": "Total Reads R1"},
-                {"name": "Total Reads R2", "id": "Total Reads R2"},
-                {"name": "GC% R1", "id": "GC% R1"},
-                {"name": "GC% R2", "id": "GC% R2"},
-                {"name": "Failed Modules", "id": "Failed Modules"},
-                {"name": "Status", "id": "Status"},
-            ],
-            page_size=20,
-            style_table={"overflowX": "auto"},
-            style_cell={"padding": "8px", "whiteSpace": "normal", "height": "auto"},
-            style_header={"fontWeight": "600"},
-        )
-        return table
+        ]
+        if int(overview["is_depth_outlier"].sum()) > 0:
+            flagged = sorted(set(overview.loc[overview["is_depth_outlier"] == 1, "sample"]))
+            children.append(
+                html.Div(
+                    f"Low-depth outlier(s), below half the median depth: {', '.join(flagged)}. "
+                    "Consider removing them before alpha/beta diversity — they set the rarefaction floor.",
+                    className="mini-note",
+                    style={"color": "var(--red)"},
+                )
+            )
+        if "qc_module_status_csv" in paths:
+            children.append(_module_status_panel(paths["qc_module_status_csv"]))
+        return html.Div(children, style={"display": "flex", "flexDirection": "column", "gap": "10px"})

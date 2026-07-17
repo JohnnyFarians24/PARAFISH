@@ -40,6 +40,61 @@ def project_run_dir(project_data: Optional[dict], run_id: Optional[str] = None) 
 	return runs_root() / slugify(project_name) / effective_run_id
 
 
+def latest_run_dir(project_data: Optional[dict]) -> Optional[Path]:
+	"""Newest run directory of the active project, or ``None``.
+
+	The stage stores are per-session, so a restarted app (or a fresh tab) loses
+	every result even though the run is still on disk. This is how the UI finds
+	that run again.
+	"""
+	project = resolve_project_data(project_data)
+	project_name = project.get("project_name")
+	if not project_name:
+		return None
+	project_dir = runs_root() / slugify(project_name)
+	if not project_dir.is_dir():
+		return None
+	runs = [path for path in project_dir.iterdir() if path.is_dir() and (path / "progress.json").exists()]
+	if not runs:
+		return None
+	return max(runs, key=lambda path: path.stat().st_mtime)
+
+
+def restore_run_state(project_data: Optional[dict]) -> Optional[dict]:
+	"""Rebuild the run-config and stage records of the project's newest run.
+
+	Returns ``None`` when there is nothing to restore. Keys mirror the session
+	stores so a callback can hand them straight back to Dash.
+	"""
+	import json
+
+	run_dir = latest_run_dir(project_data)
+	if run_dir is None:
+		return None
+	try:
+		state = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
+	except (OSError, ValueError):
+		return None
+	if not state.get("run_id"):
+		return None
+	# Only a FINISHED run may hand its stage records back to the stores. While a run
+	# is still going, progress.json already holds the records of the stages that have
+	# completed so far — restoring those here (in a fresh session/tab, where the stores
+	# are empty) would unlock QC/Preprocess/Analysis one at a time, mid-run, exactly
+	# what the progress poller deliberately withholds until `done`. Restore the
+	# run-config regardless so the poller resumes and fills every stage together at the
+	# end; leave the stage stores empty until then so the tabs stay locked.
+	done = bool(state.get("done"))
+	return {
+		"run_config": {"run_id": state["run_id"], "output_dir": str(run_dir)},
+		"qc": (state.get("qc_record") or {}) if done else {},
+		"preprocess": (state.get("preprocess_record") or {}) if done else {},
+		"analysis": (state.get("analysis_record") or {}) if done else {},
+		"databases": (state.get("db_record") or {}) if done else {},
+		"phylo": (state.get("phylo_record") or {}) if done else {},
+	}
+
+
 def resolve_project_data(project_store: Optional[dict]) -> dict:
 	project_store = project_store or {}
 	projects = project_store.get("projects")
@@ -79,6 +134,7 @@ def sample_record_to_sample(record: dict) -> Sample:
 		raise KeyError("r1_path")
 	r1 = Path(r1_value)
 	r2 = Path(r2_value) if r2_value else None
+	group = record.get("group")
 	return Sample(
 		internal_id=str(record.get("internal_id") or record.get("internal_sample_id") or slugify(record.get("display_label", "sample"))),
 		display_label=str(record.get("display_label") or record.get("display_name") or record.get("internal_id") or "sample"),
@@ -86,6 +142,8 @@ def sample_record_to_sample(record: dict) -> Sample:
 		mode=mode,
 		marker=marker,
 		selected=bool(record.get("selected", True)),
+		is_control=bool(record.get("is_control", False)),
+		group=str(group).strip() or None if group else None,
 	)
 
 
@@ -174,15 +232,22 @@ def run_config_from_store(project_data: Optional[dict], samples_data: Optional[d
 
 
 def resolve_default_dada2_reference() -> Optional[str]:
+	"""Pick a DADA2 assignTaxonomy()-compatible reference fasta.
+
+	PR2's dedicated "dada2" export is the only format actually compatible with
+	assignTaxonomy()'s rank-by-';'-split parsing. The raw ARB-SILVA release
+	fasta and PR2's mothur fasta use different header conventions and would
+	silently misalign taxonomic ranks if passed to assignTaxonomy() directly,
+	so they're only used as a last-resort fallback.
+	"""
 	db_paths = get_db_paths()
 	flags = get_feature_flags()
-	if flags.enable_silva and db_paths.silva and db_paths.silva.exists():
-		return str(db_paths.silva)
-	# Prefer the PR2 DADA2-formatted fasta for DADA2 branch if available
 	if flags.enable_pr2 and getattr(db_paths, "pr2_dada2", None) and db_paths.pr2_dada2.exists():
 		return str(db_paths.pr2_dada2)
 	if flags.enable_pr2 and db_paths.pr2 and db_paths.pr2.exists():
 		return str(db_paths.pr2)
+	if flags.enable_silva and db_paths.silva and db_paths.silva.exists():
+		return str(db_paths.silva)
 	return None
 
 
@@ -278,4 +343,6 @@ def build_sample_store_entry(sample: Sample, r1_path: Path, r2_path: Optional[Pa
 		"status": "ready",
 		"status_color": "green" if sample.mode == AnalysisMode.PE else "teal",
 		"selected": sample.selected,
+		"is_control": sample.is_control,
+		"group": sample.group,
 	}
