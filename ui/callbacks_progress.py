@@ -18,7 +18,7 @@ from analysis.analysis_metrics import build_metrics_from_outputs, feature_sets_f
 from analysis.dada2_runner import run_dada2
 from analysis.feature_set_comparison import build_feature_set_comparison
 from analysis.vsearch_runner import run_vsearch_filter_sample, run_vsearch_pool_and_cluster
-from core.config import NCBI_USE_LOCAL_DB, get_db_paths
+from core.config import MIN_UNIQUE_SIZE, NCBI_USE_LOCAL_DB, get_db_paths
 from core.preflight import preflight_notes
 from core.progress_writer import append_log, read_progress, write_progress
 from core.storage import _apply_cleanup_post_run
@@ -70,6 +70,40 @@ def _selected_samples(samples):
 	return [sample for sample in samples or [] if getattr(sample, "selected", True)]
 
 
+def _run_provenance(run_config, run_config_data) -> dict:
+    """The resolved config a run was made under, for the progress.json record.
+
+    progress.json used to carry only per-stage status, so two runs that differ only
+    in configuration — BOLD on vs off, a different min_unique_size, primers stripped
+    or not — produced different outputs that read as a regression against golden when
+    they are nothing of the sort. This block makes the difference legible: a golden
+    diff can be read under a known config instead of guessing.
+
+    Everything here is resolvable before any stage runs (it is written at init, so it
+    survives even a run whose tools fail), which is why it records the *requested*
+    db_sources rather than the post-existence-filter set the Databases stage computes.
+    """
+    data = run_config_data or {}
+    vsearch_params = run_config.vsearch_params or {}
+    requested_sources = [
+        str(source).lower()
+        for source in (data.get("db_sources") or vsearch_params.get("db_sources") or [])
+    ]
+    forward, reverse = resolve_primers(run_config)
+    markers = sorted({sample.marker.value for sample in _selected_samples(run_config.samples)})
+    db_paths = get_db_paths()
+    ncbi_local = bool(NCBI_USE_LOCAL_DB and db_paths.blast and db_paths.blast.exists())
+    return {
+        "db_sources": requested_sources,
+        "min_unique_size": int(vsearch_params.get("min_unique_size", MIN_UNIQUE_SIZE)),
+        "analysis_method": getattr(run_config, "analysis_method", "vsearch"),
+        "branch": run_config.branch.value,
+        "markers": markers,
+        "primers": {"fwd": forward, "rev": reverse},
+        "ncbi_mode": "local" if ncbi_local else "remote",
+    }
+
+
 def _run_pipeline_thread(run_config, run_config_data, progress_path):
     """Runs in a background thread and writes progress to disk."""
     stages: dict[str, str] = {}
@@ -77,6 +111,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
     active_stage_results: list[bool] = []
     progress_state = {
         "run_id": run_config.run_id,
+        "run_config": _run_provenance(run_config, run_config_data),
         "qc_record": {"status": "pending"},
         "preprocess_record": {"status": "pending"},
         "analysis_record": {"status": "pending"},
