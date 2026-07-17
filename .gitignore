@@ -17,5 +17,45 @@ data/
 *.fasta
 *.fasta.gz
 *.tax.gz
+
+# Reference databases and their caches. These are DOWNLOADED, not authored: multi-GB,
+# rebuildable via scripts/setup_databases.sh, and not ours to redistribute.
+#
+# `.tax.gz` was ignored while the uncompressed `.tax` beside it was not, and BOLD's
+# 2.3 GB `.parquet` was matched by nothing at all — so `git add .` would have tried to
+# commit 2.3 GB, which GitHub refuses over 100 MB/file and which no later commit can
+# undo: git history is permanent.
+#
+# The root cause is structural, and is on the list rather than fixed here: `databases/`
+# is BOTH a Python package and the default DB_ROOT, so downloads land inside the source
+# tree (core/config.py:107 defaults DB_ROOT to /data/dbs, but a local run points it
+# here). Code and multi-GB data sharing one directory is why one pattern miss becomes a
+# 2.3 GB mistake.
+*.tax
+*.parquet
+*.snappy
+databases/bold/
+databases/ncbi/
+# Sidecar stats for the marker-filtered references (databases/reference_filter.py).
+# The .fasta they describe is ignored above; the pair is a rebuildable cache.
+*.filtered.*.json
 Trimmomatic-0.39/
 *.zip
+
+# Fix-plan safety net (scripts/make_fixture.py, scripts/run_pipeline.py).
+# All three are large and rebuildable from committed code + the raw inputs, so
+# the scripts are versioned and their outputs are not.
+#   fixtures/       — subsampled reads; rebuild: python scripts/make_fixture.py
+#   golden_baseline/— 365 MB snapshot of the pre-fix reference run
+#   golden/real/    — frozen output of the REAL run; too large, and not ours to publish
+fixtures/
+golden_baseline/
+
+# golden/ is the inter-stage contract. golden/fixture/ IS COMMITTED ON PURPOSE (176 KB,
+# 26 files): it is what makes the contract travel with the repo. Without it the
+# golden-anchored tests skip on every machine but the one that froze them — and a skip
+# is not a pass, it is the contract going unchecked while the suite reports green. A
+# clone that cannot check the contract reproduces the exact illusion this net exists to
+# break. golden/real/ stays out: same role, but real run output and far larger.
+golden/*
+!golden/fixture/
