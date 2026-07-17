@@ -15,15 +15,21 @@ from ui.components.log_viewer import log_viewer
 from ui.components.table import data_table
 from ui.pipeline_state import _normalize_store, get_stage_record, stage_ready, stage_status, utc_now_iso
 from ui.plots import MIN_RETENTION_PCT
-from ui.runtime_state import run_config_from_store, samples_from_store, serialize_step_output
+from ui.runtime_state import latest_run_dir, run_config_from_store, samples_from_store, serialize_step_output
 
 
-def _preprocess_metric_paths(preprocess_data, run_config_data) -> dict[str, str]:
+def _preprocess_metric_paths(preprocess_data, run_config_data, project_data=None) -> dict[str, str]:
     """Locate the preprocess tables the runner persisted.
 
     Prefers the paths on the stage record; otherwise looks under the run's output
     directory, and as a last resort builds them once from the Trimmomatic/PEAR logs
     so runs recorded before this layer existed still render.
+
+    ``run_config_data`` is a per-session store: a fresh tab or a restarted app has it
+    empty, so ``output_dir`` is gone even though the run is still on disk. When that
+    happens fall back to the project's newest run on disk (``latest_run_dir``) instead
+    of returning ``{}`` and blanking the page — this is the disk path the Results page
+    already takes, applied here.
     """
     record = _normalize_store(preprocess_data)
     recorded = record.get("metrics_files") or {}
@@ -32,7 +38,10 @@ def _preprocess_metric_paths(preprocess_data, run_config_data) -> dict[str, str]
         return paths
     output_dir = (run_config_data or {}).get("output_dir")
     if not output_dir:
-        return {}
+        run_dir = latest_run_dir(project_data) if project_data else None
+        if run_dir is None:
+            return {}
+        output_dir = str(run_dir)
     from preprocess.preprocess_metrics import preprocess_metrics_paths
 
     pp_dir = Path(output_dir) / "preprocess"
@@ -120,13 +129,14 @@ def register_callbacks(app: Any) -> None:
         Output("preprocess-tracking-table", "children"),
         Input("store-preprocess-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_read_tracking(preprocess_out, run_config_data):
+    def _render_read_tracking(preprocess_out, run_config_data, project_data):
         import pandas as pd
 
         from preprocess.preprocess_metrics import failing_steps
 
-        paths = _preprocess_metric_paths(preprocess_out, run_config_data)
+        paths = _preprocess_metric_paths(preprocess_out, run_config_data, project_data)
         if "read_tracking_csv" not in paths:
             return html.Div("Run Preprocess to see the read-tracking waterfall.", className="empty-state-sub")
         try:
@@ -192,8 +202,9 @@ def register_callbacks(app: Any) -> None:
         Output("preprocess-stat-assembly", "children"),
         Input("store-preprocess-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_preprocess_stats(preprocess_out, run_config_data):
+    def _render_preprocess_stats(preprocess_out, run_config_data, project_data):
         import pandas as pd
 
         def _card(value, label, hint="", color=None):
@@ -203,7 +214,7 @@ def register_callbacks(app: Any) -> None:
                 children.append(html.Div(hint, className="stat-hint"))
             return children
 
-        paths = _preprocess_metric_paths(preprocess_out, run_config_data)
+        paths = _preprocess_metric_paths(preprocess_out, run_config_data, project_data)
         blank = (_card("—", "Input reads"), _card("—", "Surviving reads"), _card("—", "Assembly rate"))
         if "read_tracking_csv" not in paths:
             return blank
@@ -243,13 +254,14 @@ def register_callbacks(app: Any) -> None:
         Output("preprocess-plots", "children"),
         Input("store-preprocess-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_preprocess_plots(preprocess_out, run_config_data):
+    def _render_preprocess_plots(preprocess_out, run_config_data, project_data):
         import pandas as pd
 
         from ui.plots import assembly_rate_figure, fragment_length_figure, read_fate_figure
 
-        paths = _preprocess_metric_paths(preprocess_out, run_config_data)
+        paths = _preprocess_metric_paths(preprocess_out, run_config_data, project_data)
         if "read_tracking_csv" not in paths:
             return html.Div("Run Preprocess to see per-sample plots.", className="empty-state-sub")
         try:

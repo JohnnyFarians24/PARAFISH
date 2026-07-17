@@ -57,7 +57,13 @@ def latest_run_dir(project_data: Optional[dict]) -> Optional[Path]:
 	runs = [path for path in project_dir.iterdir() if path.is_dir() and (path / "progress.json").exists()]
 	if not runs:
 		return None
-	return max(runs, key=lambda path: path.stat().st_mtime)
+	# By run_id (the directory name), NOT by mtime. The run_id is the UTC creation
+	# timestamp (`timestamp_slug`), so its lexical order IS chronological, and it is
+	# immutable. mtime is not: a re-freeze, a copy, or an editor touching a file inside
+	# an OLD run bumps its mtime above the real newest run, and the restore then rebuilds
+	# the page from that stale/junk run and goes green over it. Proven by a decoy run with
+	# an older run_id forced to the newest mtime — mtime-max picked the decoy.
+	return max(runs, key=lambda path: path.name)
 
 
 def restore_run_state(project_data: Optional[dict]) -> Optional[dict]:

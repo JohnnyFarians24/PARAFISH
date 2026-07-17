@@ -1,5 +1,107 @@
 # DEVLOG
 
+## 2026-07-17 — UI Eixo B, page 1/4: Preprocess reconstructs from disk on a fresh session. QC held for last.
+
+**The bug, in one sentence a user would recognise:** close the app, reopen tomorrow, land
+on Preprocess — blank, though the run is on disk. The stage stores are per-session; the
+three render callbacks read `output_dir` straight off `store-run-config` (session) and
+returned `{}` when it was empty. This is the second half of the Results-page bug — the
+disk path vs the store path — and the OTU golden already pins the numbers the page must
+show, so the check could be the STRONG form, not merely "not blank".
+
+**Two gaps, each seen to fail first.** LOGIC: `_preprocess_metric_paths` had no way to
+reach disk — no `project_data`, no `latest_run_dir` fallback. WIRING: the three render
+callbacks did not even declare `store-project`, so the callback could not reach the run
+on disk once the helper could. Confirmed the wiring gap by reading the deps *before*
+touching logic — the fix is a wiring change (add `State("store-project")` to three
+callbacks), not internal logic, exactly the distinction that decides whether a fix is
+four lines or a callback-graph change.
+
+**The fix.** `_preprocess_metric_paths(preprocess_data, run_config_data, project_data)`
+falls back to `latest_run_dir(project_data)` when the session `output_dir` is gone — the
+disk path the Results page already takes. Three render callbacks now pass `store-project`.
+
+**Discipline.** `tests/test_preprocess_restore.py`: strong-form (reconstructs AND the
+`read_tracking.csv` bytes equal the frozen golden), plus a wiring assertion against the
+real dependency graph, plus the adversarial run-selection case (below). Seen failing on
+the tree (blank `{}`, `store-project` absent from deps), passing after. `golden.py check
+all` fixture+real: `no regressions` on all four layers. Suite `409 passed` (406 + 3).
+
+**Order for the remaining three, decided.** Databases → Analysis → **QC last**. QC last
+because it has no golden, so its check can only be the weak form ("not blank") unless a
+QC golden is generated or QC is treated apart (it is per-sample, not per-feature-set) —
+a three-way decision that is easier once the Eixo B pattern is proven on two golden-backed
+pages. Databases before Analysis to keep the axes clean: Analysis is where Eixo B meets
+Eixo A (the feature-set-selector widgets are "otu-hardcoded" territory, unprovable without
+an ASV golden), and Databases is the more contained Eixo B page.
+
+## 2026-07-17 — Hardening: latest_run_dir picks the newest run_id, not the newest mtime. The restore's silent-corruption source, removed.
+
+**Filed on its own, not under the Preprocess page, because it is shared and outlives that
+page.** `ui.runtime_state.latest_run_dir` is how a fresh session finds the project's run
+on disk — it feeds Preprocess's restore, and equally the Project-page restore
+(`restore_run_state` → `callbacks_project`), and it will feed the other three Eixo B pages.
+
+**What was wrong.** It selected `max(runs, key=mtime)`. mtime is not identity: a re-freeze,
+a copy, or an editor touching a file inside an OLD run bumps that run's mtime above the
+genuine newest, and the restore then silently rebuilds the page from the stale/junk run.
+This is the bug that does not appear until the day you copy an old run — and then it is a
+page reconstructed from the wrong data, green, with no error.
+
+**The fix removes the source rather than patching the symptom.** Select `max(runs,
+key=name)`. The directory name is the run_id — the UTC creation timestamp (`timestamp_slug`)
+— which is immutable and whose lexical order IS chronological. There is nothing left to
+corrupt.
+
+**Proven, not asserted.** A decoy run with an OLDER run_id but a deliberately newer mtime:
+mtime-max picked the decoy's garbage before the fix, the real run after. Seen to fail, seen
+to stop. The run-listing that surfaced this (ten dirs under `runs/`, several test/junk)
+also confirmed the OTHER half is safe by construction: `latest_run_dir` is scoped to the
+project's own slug, so cross-project orphans cannot be picked at all — the check pins that
+too, with a cross-project decoy that is correctly ignored.
+
+## 2026-07-17 — Gate CLOSED: a run now records its own config in progress.json. Two config-different runs are distinguishable.
+
+**The mandatory pre-UI gate is closed.** The open item from the fixture entry below
+("the run should write its own `run_config`") is done, and it was done first because
+until it closed, a golden diff could not tell a config change from a regression.
+
+**The contract, mapped before touching code.** `progress.json` is written at init in
+`_run_pipeline_thread` (`ui/callbacks_progress.py`) and carried only `run_id`, per-stage
+records and logs. `serialize_run_config` existed in `ui/runtime_state.py` and captured
+the config, but **was never called from the thread nor written to disk.** So the run
+recorded status but not recipe.
+
+**The fix (`ui/callbacks_progress.py`, +36).** A new `_run_provenance()` writes a
+`run_config` block into progress.json **at init** — before any stage — so it survives a
+run whose tools never ran (same principle as the init write itself): `db_sources`,
+`min_unique_size`, `analysis_method`, `branch`, `markers`, `primers` (fwd/rev), `ncbi_mode`.
+
+**It records the REQUESTED db_sources, not the post-existence-filter set** the Databases
+stage computes. Deliberate, and documented in the docstring: the requested set is
+deterministic at init and survives a crash; the resolved set is only known mid-stage.
+Do not "upgrade" this to the resolved set later — it would move the block out of the one
+place that is crash-proof.
+
+**Discipline held.**
+- Check seen FAILING on the tree without the init line, for the documented reason:
+  `KeyError: 'run_config'` — the real progress.json had no recipe.
+- Check PASSING with the fix. `tests/test_run_provenance.py` — anchored on the real
+  artifact: it drives `build_stores` (the helper `run_pipeline.py` uses) and the real
+  `_run_pipeline_thread`, every stage disabled so no tool is needed, then reads the
+  progress.json the pipeline wrote and asserts two runs differing only in `--db-sources`
+  are distinguishable. Not a hand-written fixture.
+- Full suite `406 passed` (was 403 + 2 new + 1). `golden.py check all` on **fixture** and
+  **real**: `no regressions` on all four frozen layers — expected, since progress.json is
+  not a frozen file and the change touches no runner or stage output.
+
+**Known item, named not fixed (per instruction).** No `PROVENANCE.txt` is produced by a
+real run — only `golden.py freeze` writes one (stage/dataset/source), and `golden_baseline/`'s
+was hand-written. Any doc or overview that lists `PROVENANCE.txt` as a normal run output
+(the repo overview did) is describing something the pipeline does not emit; it will mislead
+a user who goes looking for it. Decide later whether the run should emit its own PROVENANCE
+or whether the docs should stop promising one. Not touched now.
+
 ## 2026-07-17 — Pre-commit audit: a 2.3 GB near-miss, and the commit order is inverted by the import graph
 
 **Nothing committed. The audit found one thing that had to be fixed before any `git add`,
