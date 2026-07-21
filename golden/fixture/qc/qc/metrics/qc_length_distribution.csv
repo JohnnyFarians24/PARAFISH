@@ -1,0 +1,5 @@
+sample,read,length,count
+aptl64b_02,R1,256.0,5000
+aptl64b_02,R2,256.0,5000
+aptl64f_01,R1,256.0,5000
+aptl64f_01,R2,256.0,5000

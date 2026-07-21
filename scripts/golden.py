@@ -33,6 +33,20 @@ GOLDEN = ROOT / "golden"
 
 # Per stage: the exact files to copy (the contract) and the bulk files to checksum.
 STAGES = {
+    # QC is the first per-sample stage to enter the net; its CONTRACT is still per-stage
+    # (the metrics tables the reader consumes), which is what golden.py freezes. The
+    # per-sample FastQC .zip/.html are deliberately NOT checksummed: they embed archive
+    # timestamps and a FastQC version banner — non-content that changes every run, the
+    # same trap as table.biom's date — and they are intermediate, not the contract.
+    "qc": {
+        "copy": [
+            "qc/metrics/qc_length_distribution.csv",
+            "qc/metrics/qc_overview.csv",
+            "qc/metrics/qc_per_base_quality.csv",
+            "qc/metrics/qc_module_status.csv",
+        ],
+        "checksum": [],
+    },
     "preprocess": {
         "copy": ["preprocess/metrics/read_tracking.csv", "preprocess/metrics/assembled_length_distribution.csv"],
         "checksum": ["preprocess/*/pear/*.assembled.fastq"],
@@ -70,7 +84,7 @@ STAGES = {
         "checksum": ["databases/otu/table.biom"],
     },
 }
-ORDER = ["preprocess", "analysis", "taxonomy", "export"]
+ORDER = ["qc", "preprocess", "analysis", "taxonomy", "export"]
 
 
 # Artifacts that embed generation metadata which is NOT content. BIOM carries a

@@ -1,0 +1,5 @@
+sample,read,total_reads,pct_gc,mean_length,pct_duplication,pct_adapter_max,pct_reads_q30,n_fail,n_warn,is_depth_outlier
+aptl64b_02,R1,5000,54.0,256.0,96.62,0.0,98.3,5,1,0
+aptl64b_02,R2,5000,46.0,256.0,96.46,0.0,96.08,5,1,0
+aptl64f_01,R1,5000,54.0,256.0,96.22,0.0,98.22,6,0,0
+aptl64f_01,R2,5000,46.0,256.0,96.04,0.0,96.32,6,0,0

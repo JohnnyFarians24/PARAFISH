@@ -1,5 +1,38 @@
 # DEVLOG
 
+## 2026-07-17 — QC golden frozen. The "degenerate length histogram" was never a defect — and the net now covers a fifth stage.
+
+**The remembered defect does not exist, so there was nothing to freeze around.** An early
+audit filed `qc_length_distribution.csv` as degenerate — "all reads in one bin at 256.0,
+`mean_length=256` a placeholder, not measured" — and it sat on the cosmetic list. Before
+freezing QC I checked it against a real run, because freezing a known-bad output would
+enshrine the defect as contract — exactly what Phase 3 refused when NCBI died. It turned
+out there is no defect:
+
+- The raw reads ARE uniformly 256 bp — `5000/5000` in the fixture, `101190/101190` in the
+  real input, measured straight off the FASTQ. FastQC itself reports a single bin
+  (`Sequence Length Distribution: 256 → count`) and `Basic Statistics: Sequence length 256`
+  (a single value, not a range). The one-bin histogram is the *truthful* picture of
+  fixed-length reads, not a broken parse.
+- `mean_length` is measured, not hardcoded: `qc/fastqc_parser.py` computes
+  `Σ(length·count)/Σcount` over the parsed module, with `_midpoint` expanding any `"a-b"`
+  range. The refactor that introduced `qc_metrics.py` / `fastqc_parser.py` rewrote the old
+  parser and fixed this in passing; the audit note predates it.
+
+So the planned sequence (fix → freeze → Eixo B) collapsed: no fix, freeze directly.
+
+**What was frozen, and what was deliberately not.** QC is the first per-sample stage to
+enter the net, but its CONTRACT is still per-stage — the four `qc/metrics/*.csv` the reader
+consumes — so it fits `golden.py` unchanged. The per-sample FastQC `.zip`/`.html` are NOT
+frozen: they carry archive timestamps and a version banner (non-content that churns every
+run, the table.biom trap) and are intermediate, not contract. No QC metrics CSV embeds a
+date, so the four are byte-stable. `golden.py check all` now runs five layers, fixture and
+real, all PASS.
+
+**One hole left in the net, not two.** QC was the only pipeline stage with no contract at
+all — the same condition that blocks phylo. Freezing it leaves phylo as the single
+remaining gap. The QC Eixo B restore now has a golden to prove against, next.
+
 ## LIVING LIST — Eixo A sites pending an ASV golden (append as each page leaves selector callbacks behind)
 
 **What this is.** Every Eixo B page fixes the session-restore of its *selector-free*

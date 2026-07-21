@@ -1,0 +1,49 @@
+sample,read,module,status
+aptl64b_02,R1,Basic Statistics,pass
+aptl64b_02,R1,Per base sequence quality,pass
+aptl64b_02,R1,Per tile sequence quality,fail
+aptl64b_02,R1,Per sequence quality scores,pass
+aptl64b_02,R1,Per base sequence content,fail
+aptl64b_02,R1,Per sequence GC content,fail
+aptl64b_02,R1,Per base N content,pass
+aptl64b_02,R1,Sequence Length Distribution,pass
+aptl64b_02,R1,Sequence Duplication Levels,fail
+aptl64b_02,R1,Overrepresented sequences,fail
+aptl64b_02,R1,Adapter Content,pass
+aptl64b_02,R1,Kmer Content,warn
+aptl64b_02,R2,Basic Statistics,pass
+aptl64b_02,R2,Per base sequence quality,pass
+aptl64b_02,R2,Per tile sequence quality,fail
+aptl64b_02,R2,Per sequence quality scores,pass
+aptl64b_02,R2,Per base sequence content,fail
+aptl64b_02,R2,Per sequence GC content,warn
+aptl64b_02,R2,Per base N content,pass
+aptl64b_02,R2,Sequence Length Distribution,pass
+aptl64b_02,R2,Sequence Duplication Levels,fail
+aptl64b_02,R2,Overrepresented sequences,fail
+aptl64b_02,R2,Adapter Content,pass
+aptl64b_02,R2,Kmer Content,fail
+aptl64f_01,R1,Basic Statistics,pass
+aptl64f_01,R1,Per base sequence quality,pass
+aptl64f_01,R1,Per tile sequence quality,fail
+aptl64f_01,R1,Per sequence quality scores,pass
+aptl64f_01,R1,Per base sequence content,fail
+aptl64f_01,R1,Per sequence GC content,fail
+aptl64f_01,R1,Per base N content,pass
+aptl64f_01,R1,Sequence Length Distribution,pass
+aptl64f_01,R1,Sequence Duplication Levels,fail
+aptl64f_01,R1,Overrepresented sequences,fail
+aptl64f_01,R1,Adapter Content,pass
+aptl64f_01,R1,Kmer Content,fail
+aptl64f_01,R2,Basic Statistics,pass
+aptl64f_01,R2,Per base sequence quality,pass
+aptl64f_01,R2,Per tile sequence quality,fail
+aptl64f_01,R2,Per sequence quality scores,pass
+aptl64f_01,R2,Per base sequence content,fail
+aptl64f_01,R2,Per sequence GC content,fail
+aptl64f_01,R2,Per base N content,pass
+aptl64f_01,R2,Sequence Length Distribution,pass
+aptl64f_01,R2,Sequence Duplication Levels,fail
+aptl64f_01,R2,Overrepresented sequences,fail
+aptl64f_01,R2,Adapter Content,pass
+aptl64f_01,R2,Kmer Content,fail
