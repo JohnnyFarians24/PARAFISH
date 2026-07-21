@@ -350,6 +350,33 @@ def best_alignment_record(records: list[dict]) -> Optional[dict]:
 	return max(scored, key=lambda item: item[0])[1]
 
 
+def best_sintax_record(records: list[dict]) -> Optional[dict]:
+	"""The strongest SINTAX (k-mer bootstrap) hit for a feature: highest confidence.
+
+	The mirror of ``best_alignment_record`` for the other evidence family. A SINTAX record
+	is a k-mer classifier that NEVER aligns, so it carries a bootstrap confidence and NO
+	identity — that absence of identity is what tells it apart from an aligner. The
+	distinction matters because the record's ``confidence`` field falls back to an aligner's
+	BLAST bitscore (see ``_normalize_source_row``): an NCBI hit therefore carries a
+	``confidence`` too, and keying on "has confidence" alone would mislabel its bitscore as a
+	SINTAX bootstrap. Requiring identity to be ABSENT excludes NCBI/BOLD cleanly. A record
+	that named no taxon is not a hit.
+	"""
+	scored = []
+	for record in records:
+		if _to_float(record.get("similarity")) is not None:
+			continue  # has an alignment identity → it is an aligner, not SINTAX
+		confidence = _to_float(record.get("confidence"))
+		if confidence is None:
+			continue
+		if not any(record.get(level) for level in TAXONOMY_LEVELS):
+			continue
+		scored.append((confidence, record))
+	if not scored:
+		return None
+	return max(scored, key=lambda item: item[0])[1]
+
+
 def _build_consensus_row(asv_id: str, records: list[dict], method: str, feature_type: str = "") -> Dict[str, str]:
 	method_name = (method or "lca").strip().lower()
 	if method_name == "strict":
@@ -1099,6 +1126,87 @@ def _build_hits_rows(hits_by_asv: Dict[str, List[dict]], feature_type: str = "")
 	return rows
 
 
+# One row per feature: the call, and the two evidence families that back it, side by side.
+# NO cross-metric winner — alignment identity and SINTAX bootstrap live in SEPARATE columns
+# so a reader sees whether the two families agree, and is never handed a single blended score
+# that hides a disagreement (the Phase-3 bug). This is the supervisors' deliverable table.
+SUMMARY_COLUMNS = [
+	"ASV_ID",
+	"feature_type",
+	"consensus_taxon",
+	"consensus_rank",
+	"consensus_reliability",
+	"align_source",
+	"align_taxon",
+	"align_identity",
+	"sintax_source",
+	"sintax_taxon",
+	"sintax_confidence",
+]
+
+# Consensus columns from deepest to shallowest — the summary's single taxon call is the
+# deepest rank the LCA actually resolved, read from the consensus row already built (one
+# source), never recomputed here.
+_SUMMARY_CONSENSUS_RANKS = [
+	("Consensus_Species", "species"),
+	("Consensus_Genus", "genus"),
+	("Consensus_Family", "family"),
+	("Consensus_Order", "order"),
+	("Consensus_Class", "class"),
+	("Consensus_Phylum", "phylum"),
+	("Consensus_Kingdom", "kingdom"),
+]
+
+
+def _consensus_call(consensus_row: Dict[str, str]) -> tuple:
+	"""The deepest resolved rank of the consensus row, as ``(taxon, rank)``."""
+	for column, rank in _SUMMARY_CONSENSUS_RANKS:
+		value = _safe_text(consensus_row.get(column))
+		if value:
+			return value, rank
+	return "", "unassigned"
+
+
+def _record_taxon(record: Optional[dict]) -> str:
+	"""The named taxon of a hit at its deepest resolved rank — same rule the hits table uses."""
+	if record is None:
+		return ""
+	rank = deepest_rank(record)
+	return _safe_text(record.get(rank)) if rank != "unassigned" else ""
+
+
+def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: List[Dict[str, str]], feature_type: str = "") -> List[Dict[str, str]]:
+	"""One row per feature: consensus call plus the best hit of EACH evidence family.
+
+	Derived from the same in-memory records and consensus rows the other taxonomy tables
+	are — this file is written by the pipeline and rendered as-is by the UI, so the screen
+	and the download cannot diverge.
+	"""
+	by_id = {row.get("ASV_ID"): row for row in consensus_rows}
+	rows: List[Dict[str, str]] = []
+	for asv_id, records in sorted(records_by_asv.items()):
+		consensus_row = by_id.get(asv_id, {})
+		taxon, rank = _consensus_call(consensus_row)
+		align = best_alignment_record(records)
+		sintax = best_sintax_record(records)
+		rows.append(
+			{
+				"ASV_ID": asv_id,
+				"feature_type": feature_type,
+				"consensus_taxon": taxon,
+				"consensus_rank": rank,
+				"consensus_reliability": _safe_text(consensus_row.get("Reliability")),
+				"align_source": _safe_text(align.get("source")) if align else "",
+				"align_taxon": _record_taxon(align),
+				"align_identity": _safe_text(align.get("similarity")) if align else "",
+				"sintax_source": _safe_text(sintax.get("source")) if sintax else "",
+				"sintax_taxon": _record_taxon(sintax),
+				"sintax_confidence": _safe_text(sintax.get("confidence")) if sintax else "",
+			}
+		)
+	return rows
+
+
 def _collect_source_records(source: str, table_path: Optional[Path]) -> Dict[str, List[dict]]:
 	rows_by_asv: Dict[str, List[dict]] = defaultdict(list)
 	if table_path and table_path.exists() and table_path.stat().st_size > 0:
@@ -1382,6 +1490,13 @@ def run_taxonomy_pipeline(
 	# sorts, filters and picks the runner-up from.
 	_write_csv(hits_path, _build_hits_rows(hits_by_asv, feature_type), HITS_COLUMNS)
 	files["taxonomy_hits_csv"] = hits_path
+
+	# One row per feature: the consensus call and the best hit of each evidence family,
+	# in separate columns. Written here, from the same records, so the UI can render this
+	# file rather than recompute it — one source, two consumers.
+	summary_path = output_dir / "taxonomy_summary.csv"
+	_write_csv(summary_path, _build_summary_rows(records_by_asv, consensus_rows, feature_type), SUMMARY_COLUMNS)
+	files["taxonomy_summary_csv"] = summary_path
 
 	# Per-source assignments carry the evidence (identity, coverage, confidence,
 	# rank) that the collapsed consensus row throws away.

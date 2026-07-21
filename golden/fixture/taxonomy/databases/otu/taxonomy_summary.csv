@@ -1,0 +1,5 @@
+ASV_ID,feature_type,consensus_taxon,consensus_rank,consensus_reliability,align_source,align_taxon,align_identity,sintax_source,sintax_taxon,sintax_confidence
+OTU1,OTU,Gadus,genus,high,NCBI,Gadus morhua,100.000,SILVA,Gadus_morhua_(Atlantic_cod),1.00
+OTU2,OTU,Gadus,genus,high,NCBI,Gadus morhua,96.667,SILVA,Gadus_morhua_(Atlantic_cod),1.00
+OTU3,OTU,Aspergillus,genus,high,NCBI,Aspergillus flavus,95.918,SILVA,Gadus_morhua_(Atlantic_cod),1.00
+OTU4,OTU,Melanogrammus,genus,high,NCBI,Melanogrammus aeglefinus,99.638,SILVA,Gadus_morhua_(Atlantic_cod),1.00

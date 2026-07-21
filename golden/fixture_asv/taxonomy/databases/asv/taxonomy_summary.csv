@@ -1,0 +1,4 @@
+ASV_ID,feature_type,consensus_taxon,consensus_rank,consensus_reliability,align_source,align_taxon,align_identity,sintax_source,sintax_taxon,sintax_confidence
+ASV1,ASV,Gadus_morhua_(Atlantic_cod),species,high,,,,SILVA,Gadus_morhua_(Atlantic_cod),1.00
+ASV2,ASV,Gadus_morhua_(Atlantic_cod),species,high,,,,SILVA,Gadus_morhua_(Atlantic_cod),1.00
+ASV3,ASV,Gadus_morhua_(Atlantic_cod),species,high,,,,SILVA,Gadus_morhua_(Atlantic_cod),1.00

@@ -406,6 +406,95 @@ def register_callbacks(app: Any) -> None:
         return dcc.send_data_frame(frame.to_csv, f"{feature_set}_best_hits.csv", index=False)
 
     @app.callback(
+        Output("databases-feature-summary", "children"),
+        Input("store-databases-outputs", "data"),
+        Input("databases-feature-set", "value"),
+        State("store-run-config", "data"),
+        State("store-project", "data"),
+    )
+    def _render_feature_summary(db_out, feature_set, run_config_data, project_data):
+        """The per-feature deliverable, rendered STRAIGHT from taxonomy_summary.csv.
+
+        No recomputation here: the pipeline wrote the file, this reads it, and the download
+        button hands over the same file — one source, two consumers, so the screen and the
+        exported table cannot diverge on a reconstructed session.
+        """
+        import pandas as pd
+
+        from ui.feature_sets import taxonomy_file
+
+        db = _normalize_store(db_out)
+        outputs = db.get("outputs") or {}
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
+        feature_set = feature_set or "otu"
+
+        path = taxonomy_file(outputs, run_output_dir, feature_set, "taxonomy_summary_csv")
+        if not path:
+            return html.Div(
+                "Ainda não há resumo por feature. Corre a etapa Databases com pelo menos uma "
+                "base de referência.",
+                className="empty-state-sub",
+            )
+        try:
+            frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+        except Exception as exc:
+            return html.Div(f"Resumo indisponível: {exc}", className="empty-state-sub")
+        if frame.empty:
+            return html.Div("Nenhuma feature classificada.", className="empty-state-sub")
+
+        headers = {
+            "ASV_ID": "ID",
+            "feature_type": "Tipo",
+            "consensus_taxon": "Consenso (LCA)",
+            "consensus_rank": "Nível",
+            "consensus_reliability": "Fiabilidade",
+            "align_source": "Alinhamento — fonte",
+            "align_taxon": "Alinhamento — taxon",
+            "align_identity": "Alinhamento — % identidade",
+            "sintax_source": "SINTAX — fonte",
+            "sintax_taxon": "SINTAX — taxon",
+            "sintax_confidence": "SINTAX — confiança",
+        }
+        return html.Div(
+            [
+                html.Div([html.Div(f"{len(frame)} features", className="status-pill")], className="chip-list"),
+                data_table(
+                    data=frame.to_dict("records"),
+                    columns=[{"name": headers.get(str(c), str(c)), "id": str(c)} for c in frame.columns],
+                    sort_action="native",
+                    filter_action="native",
+                    id="feature-summary-table",
+                    page_size=15,
+                ),
+            ],
+            style={"display": "flex", "flexDirection": "column", "gap": "10px"},
+        )
+
+    @app.callback(
+        Output("download-summary-csv", "data"),
+        Input("btn-download-summary", "n_clicks"),
+        State("store-databases-outputs", "data"),
+        State("databases-feature-set", "value"),
+        State("store-run-config", "data"),
+        State("store-project", "data"),
+        prevent_initial_call=True,
+    )
+    def _download_summary(n_clicks, db_out, feature_set, run_config_data, project_data):
+        """Hand over the exact file the pipeline wrote — not a re-serialization of the screen."""
+        if not n_clicks:
+            raise PreventUpdate
+        from ui.feature_sets import taxonomy_file
+
+        db = _normalize_store(db_out)
+        outputs = db.get("outputs") or {}
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
+        feature_set = feature_set or "otu"
+        path = taxonomy_file(outputs, run_output_dir, feature_set, "taxonomy_summary_csv")
+        if not path:
+            raise PreventUpdate
+        return dcc.send_file(path, filename=f"{feature_set}_taxonomy_summary.csv")
+
+    @app.callback(
         Output("databases-feature-comparison", "children"),
         Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),

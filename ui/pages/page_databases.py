@@ -193,6 +193,30 @@ def layout():
 				],
 				className="card card-body",
 			),
+			# The deliverable: one row per feature, the consensus call beside the best hit
+			# of EACH evidence family. Rendered straight from taxonomy_summary.csv (written
+			# by the pipeline) — the same file the download hands over, so the screen and
+			# the exported table can never diverge.
+			html.Div(
+				[
+					html.Div("Per-feature summary", className="card-title"),
+					html.Div(
+						"One row per feature: the consensus call (LCA), and the best hit of each evidence "
+						"family — alignment (identity) and SINTAX (bootstrap) — in SEPARATE columns. There is "
+						"no single winning score: when the two families disagree, you see both and decide.",
+						className="mini-note",
+					),
+					html.Div(
+						[
+							html.Button("Download summary (CSV)", id="btn-download-summary", className="btn-parafish"),
+							dcc.Download(id="download-summary-csv"),
+						],
+						className="control-row",
+					),
+					dcc.Loading(html.Div(id="databases-feature-summary"), type="dot"),
+				],
+				className="card card-body",
+			),
 			html.Div(
 				[
 					html.Div("OTU vs ASV", className="card-title"),

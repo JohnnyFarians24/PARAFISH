@@ -80,19 +80,25 @@ STAGES = {
         # the determinism discipline was tightened (the QC/DADA2 gates), NOT a precedent. It
         # survives only because golden checks the fixed run dir, not a fresh run. The
         # run_config in each run's progress.json makes the source difference legible.
-        # taxonomy_hits.csv is contracted here because it is the supervisors' deliverable.
+        # taxonomy_hits.csv is contracted here because it is the supervisors' deliverable, and
+        # taxonomy_summary.csv alongside it: one row per feature carrying the consensus call and
+        # the best hit of EACH evidence family (alignment identity, SINTAX confidence) in
+        # SEPARATE columns — no cross-metric winner. It is written by the pipeline and rendered
+        # as-is by the UI, so screen and download cannot diverge (one source, two consumers).
         "copy": [
             "databases/otu/taxonomy_consensus.csv",
             "databases/otu/source_assignments.csv",
             "databases/otu/source_status.csv",
             "databases/otu/conflict_report.csv",
             "databases/otu/taxonomy_hits.csv",
+            "databases/otu/taxonomy_summary.csv",
             "databases/otu/metrics/taxonomic_resolution.csv",
             "databases/asv/taxonomy_consensus.csv",
             "databases/asv/source_assignments.csv",
             "databases/asv/source_status.csv",
             "databases/asv/conflict_report.csv",
             "databases/asv/taxonomy_hits.csv",
+            "databases/asv/taxonomy_summary.csv",
             "databases/asv/metrics/taxonomic_resolution.csv",
         ],
         "checksum": [],

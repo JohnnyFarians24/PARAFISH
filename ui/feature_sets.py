@@ -62,6 +62,7 @@ def taxonomy_file(db_outputs: Optional[dict], run_output_dir, feature_set: str, 
     filename = {
         "taxonomy_consensus_csv": "taxonomy_consensus.csv",
         "taxonomy_hits_csv": "taxonomy_hits.csv",
+        "taxonomy_summary_csv": "taxonomy_summary.csv",
         "source_status_csv": "source_status.csv",
         "conflict_report_csv": "conflict_report.csv",
         "source_assignments_csv": "source_assignments.csv",

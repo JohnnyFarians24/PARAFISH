@@ -1,5 +1,48 @@
 # DEVLOG
 
+## 2026-07-21 — The per-feature taxonomy summary: a NEW deliverable, single-sourced, and a cross-metric bug caught in the building.
+
+**One row per feature, both evidence families side by side, no blended score.**
+`taxonomy_summary.csv` is now written by `run_taxonomy_pipeline` next to hits/consensus: per
+feature, the consensus call (LCA taxon + rank + reliability), then the best ALIGNMENT hit
+(source, taxon, identity) and the best SINTAX hit (source, taxon, confidence) in SEPARATE
+columns. There is deliberately NO cross-metric winner — identity and bootstrap are different
+scales, and collapsing them into one "best" is the Phase-3 bug. When the two families disagree
+(fixture OTU3: NCBI says *Aspergillus flavus* at 96%, SILVA says *Gadus morhua*), the reader
+sees both and decides; the table never hides the disagreement behind a single number.
+
+**Single-sourced, the Phase-2 principle: the pipeline writes the file, the UI renders THAT
+file, the download hands over THAT file.** New card on the Databases page reads
+`taxonomy_summary.csv` as-is (no recompute) and the download button sends the file itself
+(`dcc.send_file`), so screen and export are the same bytes — and both resolve through
+`_resolve_output_dir` with a `store-project` fallback, so a reconstructed session does not blank
+them (the restore discipline the harvest just established, applied to a new pair at birth).
+
+**A cross-metric bug, caught by building the fixture OTU set and reading it.** The first cut
+split the two families by "has a confidence value" — and every OTU came back with
+`sintax_source=NCBI, sintax_confidence=717`. That 717 is NCBI's BLAST *bitscore*: the record's
+`confidence` field falls back to bitscore for aligners (`_normalize_source_row`), so keying on
+its presence mislabels an alignment as a SINTAX call. The honest discriminator is the one the
+`best_alignment_record` docstring already states — SINTAX never aligns, so it carries NO
+identity. `best_sintax_record` now excludes any record with an identity, and NCBI/BOLD are
+cleanly on the alignment side only. The bug was invisible in fixture_asv (SINTAX-only, no
+aligner to mislabel) and only surfaced on an OTU set with NCBI — the measure-against-the-real-
+artifact lesson again: the ASV anchor alone would have frozen the mistake.
+
+**Contracted in the golden for all three sets, and the pin proven to bite.** Backfilled the
+summary into the frozen run dirs by reconstructing records from `source_assignments.csv` (a
+1:1 serialization of `records_by_asv`) and running the SAME builder — verified byte-identical
+to the raw-collector path for fixture_asv, so it is the pipeline's own output, not a second
+implementation. `taxonomy_summary.csv` added to `golden.py`, frozen for fixture/real (otu) and
+fixture_asv (asv); perturbing a run-dir summary makes `check` FAIL (`CONTENT CHANGED`),
+restoring makes it pass. Strong proof in `tests/test_taxonomy_summary.py`: records collected
+from the raw SINTAX results by the pipeline's own collectors, run through the builder,
+reproduce `golden/fixture_asv`'s summary byte-for-byte. Full suite 429 passed / 3 skipped;
+`golden.py check all` clean on all three.
+
+**Harvest and derivation done. Remaining: phylo (no-network writer, check-fails-first
+discipline) and `update_qc_stats`.**
+
 ## 2026-07-21 — ASV harvest CLOSED. The conclusion is about the list, not the code: every site shrank when measured, and always for the same reason.
 
 **Four sites of blocked ASV work were on the registry; measured against the fixture_asv
