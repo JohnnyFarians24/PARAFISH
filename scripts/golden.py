@@ -52,6 +52,10 @@ STAGES = {
         "checksum": ["preprocess/*/pear/*.assembled.fastq"],
     },
     "analysis": {
+        # Feature-set-adaptive: freeze() skips absent files, so a VSEARCH/OTU run freezes
+        # the otu/* paths and a DADA2/ASV run the asv/* paths — one spec, either method,
+        # under its own dataset (the fixture is otu; fixture_asv is dada2). DADA2 removes
+        # chimeras internally, so there is no asv chimera_stats to mirror.
         "copy": [
             "analysis/pooled/otu_table.tsv",
             "analysis/pooled/otu_id_map.csv",
@@ -59,8 +63,12 @@ STAGES = {
             "analysis/metrics/otu/chimera_stats.csv",
             "analysis/metrics/otu/alpha_diversity.csv",
             "analysis/metrics/otu/rank_abundance.csv",
+            "analysis/dada2/asv_table.tsv",
+            "analysis/dada2/asv_abundance.csv",
+            "analysis/metrics/asv/alpha_diversity.csv",
+            "analysis/metrics/asv/rank_abundance.csv",
         ],
-        "checksum": ["analysis/pooled/otus.fasta"],
+        "checksum": ["analysis/pooled/otus.fasta", "analysis/dada2/asv_sequences.fasta"],
     },
     "taxonomy": {
         "copy": [

@@ -59,3 +59,6 @@ golden_baseline/
 # break. golden/real/ stays out: same role, but real run output and far larger.
 golden/*
 !golden/fixture/
+# fixture_asv/ is the DADA2 counterpart of fixture/ — same reason to commit: it makes the
+# ASV contract travel, so the feature-set-resolved readers can be checked on a clean clone.
+!golden/fixture_asv/

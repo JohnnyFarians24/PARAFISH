@@ -1,5 +1,68 @@
 # DEVLOG
 
+## 2026-07-17 — ASV golden frozen (fixture_asv). The harvest's anchor exists; DADA2 is deterministic, so it was safe to freeze.
+
+**Determinism gate first, before freezing anything — the SINTAX lesson.** Two DADA2 runs
+over the fixture produced byte-identical contract files (`asv_table.tsv`, `asv_sequences.fasta`,
+`metrics/asv/alpha_diversity.csv`, `rank_abundance.csv`). DADA2's denoising is deterministic
+here — no unseeded distribution to accidentally enshrine — so a frozen ASV golden is a
+contract, not one sample of many. (If it had differed, freezing would have been blocked
+until seeded, exactly as SINTAX was.)
+
+**One spec, either method — `golden.py` made feature-set-adaptive by the absent-guard it
+already had.** `freeze()` skips files that do not exist, so the `analysis` stage now lists
+BOTH the otu/* and the asv/* contract paths: a VSEARCH run freezes the former (asv absent),
+a DADA2 run the latter (otu absent). No branching, no second stage definition. DADA2 removes
+chimeras internally, so there is deliberately no asv `chimera_stats` to mirror.
+
+**Frozen as its own dataset, `fixture_asv`, and committed** (`.gitignore` un-ignores
+`golden/fixture_asv/` beside `golden/fixture/`) so the ASV contract travels with the repo —
+the feature-set-resolved readers can be checked on a clean clone, same reason `golden/fixture/`
+is in. `golden.py check analysis --dataset fixture_asv` PASSES; the otu datasets (fixture,
+real, five layers) are untouched — `no regressions`.
+
+**This is the anchor, not the harvest.** With the ASV contract frozen, the next sessions are
+pure consumers, each provable against it: (1) the six Analysis *residual* callbacks — swap
+the `"otu"` constant for the resolved set, check they reconstruct `metrics/asv/*` on the
+fixture_asv run; (2) the *deferred-whole* selector callbacks (`_render_hits`,
+`_render_consensus`, `_render_occupancy`) — Eixo B restore + right-set proof. One per session,
+each with its own failing-first check, all before phylo.
+
+## 2026-07-17 — Viability probe: both unblocks run at fixture scale. The phylo finding is wider than the old note said.
+
+**The question was never "can the 2.8 GB box do a real DADA2/phylo run" — it is "can it do
+one over the fixture", and the answer to both is yes.** An ASV registry harvest needs *any*
+ASV artifact, not a deep one; a phylo contract needs a small tree as well as a large one.
+
+- **DADA2 on the fixture: runs.** Full qc→preprocess→analysis(dada2), `overall=success`,
+  ~36 s, no OOM (516 MB free after). It already writes the per-set layout: `analysis/dada2/*`
+  and **`analysis/metrics/asv/`** — the exact directory `analysis_metrics_paths(dir, "asv")`
+  expects. So an ASV golden fits the existing pipeline with NO writer change. (One env note:
+  Trimmomatic needs `TRIMMOMATIC_JAR_PATH` pointed at the repo jar off-Docker; not a blocker.)
+- **Phylo on the fixture: runs.** MAFFT+FastTree+RAxML over the 4 fixture OTUs in 0.4 s. Cost
+  in phylo is scale (thousands of sequences), and scale is not what the contract needs.
+
+**The phylo finding corrects the registry note, and it is worse than "flat vs per-set".**
+The writer puts the tree at `phylo/fasttree/tree.nwk` (flat, by tool). The disk reader
+(`callbacks_phylo.py:530`) looks at `phylo/otu/tree.nwk` then `phylo/tree.nwk` — **neither
+matches**. It is not that the reader wants per-set and the writer is flat; it is that the
+tree's location diverges outright, and the writer has NO feature-set namespace at all, so an
+OTU tree and an ASV tree would collide in one directory.
+
+**Layout decided (for the later phylo session): per-set `phylo/<set>/`, tree at
+`phylo/<set>/tree.nwk`, reader per-set-then-flat** (the `feature_sets.py` idiom, proven three
+times). It aligns writer with what `:530` already reaches for, matches
+`analysis/metrics/<set>/` and `databases/<set>/`, and dissolves the OTU/ASV collision. The
+flat fallback is required: runs already on disk have flat `phylo/` and would stop rendering
+without it.
+
+**Order and a new discipline.** ASV harvest first — mechanical: DADA2 already writes
+`metrics/asv/`, so it is freeze-and-prove with no pipeline-code change. Phylo after: it needs
+a WRITER change, and phylo has no golden — the first write-side change with no net under it.
+Mandatory order there: check seen failing (flat writer + per-set reader → tree not found) →
+change the writer → check passes → only THEN freeze the golden over the new layout. Freezing
+before deciding would enshrine the wrong thing — the QC lesson, restated.
+
 ## 2026-07-17 — UI Eixo B, page 4/4: QC reconstructs from disk. Eixo B complete across every page that had the bug.
 
 **The last page, and the cleanest.** QC is pre-clustering and per-sample — no feature-set
