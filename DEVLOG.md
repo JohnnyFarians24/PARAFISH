@@ -1,5 +1,31 @@
 # DEVLOG
 
+## 2026-07-17 — ASV harvest 2/3: occupancy's scope, measured, was restore only — not restore + set-proof.
+
+**The registry is hypothesis, not inventory — occupancy narrowed too.** It was filed
+deferred-whole as "Eixo B restore + right-set proof". Measured against the anchor, the
+right-set half was never broken: `_render_occupancy` already passes its
+`analysis-occupancy-set` selector value straight to `analysis_metrics_paths(dir, set)`. The
+only real gap was the Eixo B restore — it read `output_dir` off the session store with no
+`store-project` fallback, blanking on a fresh tab. So the fix is the plain restore wiring the
+other pages got, nothing about the selector.
+
+**Occupancy had no contract at all, so it got one.** `feature_occupancy.csv` was frozen for
+no dataset — occupancy was never in the net. Un-deferring it, I froze `feature_occupancy.csv`
+(otu for fixture/real, asv for fixture_asv) via the same absent-guarded analysis spec, so the
+proof can byte-match and the metric now regresses like the rest.
+
+**Proven.** `tests/test_analysis_occupancy_asv.py`: the reconstructed run dir feeds the
+selected set's occupancy — asv byte-identical to `golden/fixture_asv`, and `otu` on an
+asv-only run yields nothing (the set is honored, not defaulted). Wiring seen to fail first
+(callback did not declare `store-project`), passing after. `golden.py check` clean on
+fixture, real (five layers) and fixture_asv.
+
+**Harvest remaining:** `_render_hits` + `_render_consensus` — the last, and the only one that
+still needs a NEW frozen layer: run fixture_asv through databases, gate taxonomy determinism
+(SINTAX seeded; decide sources, likely the OTU set for comparability, made visible by the
+run_config in provenance), freeze `fixture_asv/taxonomy`, then prove. Its own session.
+
 ## 2026-07-17 — ASV harvest 1/3: the Analysis residual was ONE resolver, not six callbacks.
 
 **The registry said "six residual callbacks"; the anchor let me check, and it was narrower.**

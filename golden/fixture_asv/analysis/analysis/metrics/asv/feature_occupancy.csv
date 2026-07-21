@@ -1,0 +1,4 @@
+feature,n_samples_present,samples_present,total_reads,max_sample,max_sample_reads,is_shared,is_unique
+ASV1,2,aptl64b_02;aptl64f_01,8289,aptl64f_01,4246,1,0
+ASV2,2,aptl64b_02;aptl64f_01,163,aptl64b_02,96,1,0
+ASV3,1,aptl64b_02,6,aptl64b_02,6,0,1

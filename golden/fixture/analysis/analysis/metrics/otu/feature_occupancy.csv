@@ -1,0 +1,5 @@
+feature,n_samples_present,samples_present,total_reads,max_sample,max_sample_reads,is_shared,is_unique
+OTU1,2,aptl64b_02;aptl64f_01,8097,aptl64f_01,4137,1,0
+OTU2,2,aptl64b_02;aptl64f_01,7,aptl64b_02,6,1,0
+OTU3,1,aptl64b_02,2,aptl64b_02,2,0,1
+OTU4,1,aptl64b_02,1,aptl64b_02,1,0,1

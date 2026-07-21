@@ -107,8 +107,9 @@ def register_callbacks(app: Any) -> None:
         Input("analysis-occupancy-set", "value"),
         Input("analysis-occupancy-filter", "value"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_occupancy(analysis_data, feature_set, mode, run_config_data):
+    def _render_occupancy(analysis_data, feature_set, mode, run_config_data, project_data):
         """Which samples each feature was found in — the cross-sample question."""
         import pandas as pd
 
@@ -117,7 +118,7 @@ def register_callbacks(app: Any) -> None:
 
         feature_set = feature_set or "otu"
         noun = FEATURE_SET_NOUN.get(feature_set, "feature")
-        output_dir = (run_config_data or {}).get("output_dir")
+        output_dir = _resolve_output_dir(run_config_data, project_data)
         if not output_dir:
             return html.Div(_EMPTY, className="empty-state-sub")
 
