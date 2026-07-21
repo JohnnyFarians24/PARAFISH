@@ -1,5 +1,41 @@
 # DEVLOG
 
+## 2026-07-17 — BOLD's positive path is not untested — it is BROKEN against the real output format. Reported, not fixed.
+
+**The cheap pre-meeting probe found more than "never ran".** BOLD has produced zero
+attributions in this project (COI-vs-18S marker mismatch every run), so `_read_id_engine_hits`
+and `select_bold_top_hits` — the parse of a positive BOLDigger3 result — never executed, in
+production or in any test (the existing BOLD tests feed already-parsed dicts and stub files,
+skipping both). The task was to test them against a synthetic BOLDigger3-format result.
+
+**Validating the synthetic against the REAL schema is what caught it.** The first synthetic
+DuckDB used capitalised rank columns (`Phylum`..`Species`) and passed — but that was the code
+agreeing with itself. The real BOLDigger3 3.x `id_engine_results` table (checked in
+`golden_baseline/.../sanitized_input.duckdb`) emits the ranks in **lowercase**
+(`phylum`..`species`). `select_bold_top_hits` looks them up via
+`_BOLD_RANK_ORDER = ["Phylum".."Species"]`, finds none, and **blanks every rank** — a 99.5%
+hit comes back with its `pct_identity` (read correctly, lowercase) but no taxonomy at all.
+Verified directly: all six ranks empty for a 99.5% synthetic hit.
+
+**So "BOLD functional" is broken, not merely unproven.** A real positive BOLD identification
+would be silently stripped of its taxonomy. `_read_id_engine_hits` (the store reader) is
+sound; the rank-collapse is the break, and it looks like a column-case fix — but it must be
+proven against the real format, not a hand-capitalised fixture.
+
+**Not fixed, per instruction.** `tests/test_bold_positive_parsing.py` records both halves
+against the real lowercase schema: the reader passes; the rank-collapse is
+`expectedFailure` (xfail — suite stays green) so the bug is pinned in code and flips to an
+unexpected success the day it is fixed. For the supervisor conversation: the honest line is
+"the reader works; the taxonomy parse is broken by a column-case mismatch and needs a fix
+plus a real COI demonstration" — not "the path never ran".
+
+**Separately, on the deliverable table:** `_download_hits` exports `{feature_set}_best_hits.csv`,
+but it is the ranked EVIDENCE table filtered by the UI controls ("export what you're looking
+at"), NOT a one-row-per-feature best-hit derivation. The name oversells it. The evidence
+table is real and correct (per-feature × per-source, with `identity` and `confidence` in
+SEPARATE columns — the Phase-3 metric distinction already honoured); the curated
+best-per-feature derivation for supervisors does NOT exist yet and is a build, not a rename.
+
 ## 2026-07-17 — ASV harvest 2/3: occupancy's scope, measured, was restore only — not restore + set-proof.
 
 **The registry is hypothesis, not inventory — occupancy narrowed too.** It was filed
