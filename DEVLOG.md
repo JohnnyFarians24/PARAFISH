@@ -1,5 +1,52 @@
 # DEVLOG
 
+## 2026-07-21 — ASV harvest CLOSED. The conclusion is about the list, not the code: every site shrank when measured, and always for the same reason.
+
+**Four sites of blocked ASV work were on the registry; measured against the fixture_asv
+anchor, all four came in smaller than filed — and the cause was identical each time.** The
+entries were written before the anchor existed, so each was a guess at scope with no artifact
+to check it against. The guess ran wide every time:
+
+- **Analysis residual** — filed "six residual callbacks", was ONE resolver swap. Behind the
+  six sat two resolvers; only `_analysis_metric_paths` carried the `otu` assumption,
+  `_find_abundance_matrix` was already set-adaptive.
+- **Occupancy** — filed deferred-whole "restore + right-set proof", was restore only. The
+  selector already passed its value straight to `analysis_metrics_paths`; the right-set half
+  was never broken.
+- **Hits** — filed as an Eixo A right-set selector problem, was the Eixo B restore only.
+  `_load_hits_frame` already threaded the set through `taxonomy_file`.
+- **Consensus** — same as hits: filed right-set, was restore only.
+
+**The through-line: a list written without the artifact that could verify it will overstate,
+because it is recording fear, not measurement.** Three of the four had a set-honoring path
+that was already correct — the registry called it broken because, blind, "the selector might
+be wrong" is the safe thing to write down. Only the anchor could turn "might" into "is" or
+"isn't", and every time it said "isn't". This is the same lesson as the fixtures (author's
+fixture inherits author's belief) pointed at a work list instead of a test: the estimate and
+the check must come from the same measured artifact, or the estimate is just the belief.
+
+**So the discipline for the registry, recorded as the harvest's conclusion:** a list of
+blocked work exists to keep the SITES in view — so none is silently dropped — and never as an
+estimate of the effort each will take. Effort is unknowable until there is an anchor to
+measure against; until then the only honest field is "blocked, and why", not "how big". Read
+the registry as a map of where to look, not as a forecast.
+
+**What the harvest delivered.** `fixture_asv` is now a five-layer anchor (qc, preprocess,
+analysis, dada2, taxonomy); the six Analysis callbacks, occupancy, hits and consensus all
+reconstruct from disk and honor the selected set, each proven byte-identical to golden with
+its wiring seen to fail first. `_download_hits` got the single-source fix alongside hits — the
+export reads the same reconstructed dir as the screen, so the two cannot diverge on a restored
+session (the Phase-2 two-ledgers bug in its UI form).
+
+**Not in the harvest — the two that remain, with their disciplines:**
+- **The derivation** (next session) — one row per feature, NEW build not a restore. Design and
+  site fixed: a file WRITTEN BY THE PIPELINE, contracted in the golden, UI rendering that file
+  rather than recomputing. Columns: consensus taxon (LCA), best alignment hit (source, taxon,
+  identity), best SINTAX hit (source, taxon, confidence) — SEPARATE, no cross-metric winner.
+- **Phylo** — a no-network writer, and it gets the full new discipline: golden `check` fails →
+  change the WRITER → check passes → only THEN freeze. Never freeze first.
+- **`update_qc_stats`** — still open.
+
 ## 2026-07-17 — ASV harvest 3/3, step 2: hits/consensus restored — and, measured, the scope was restore only.
 
 **The last two deferred callbacks, and the same finding as occupancy: the right-set half was
