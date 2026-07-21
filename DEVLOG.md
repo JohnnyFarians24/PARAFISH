@@ -1,5 +1,32 @@
 # DEVLOG
 
+## 2026-07-17 — UI Eixo B, page 4/4: QC reconstructs from disk. Eixo B complete across every page that had the bug.
+
+**The last page, and the cleanest.** QC is pre-clustering and per-sample — no feature-set
+concept, so no Eixo A entanglement at all; the whole disk-reconstructing surface is provable
+now that the QC golden exists. Same Preprocess shape: `_qc_metric_paths` gains `project_data`
+and a `latest_run_dir` fallback; two render callbacks now declare `store-project` —
+`_render_qc_plots` (`qc_length_distribution.csv` / `qc_per_base_quality.csv`) and
+`_render_qc_sample_table` (`qc_overview.csv`).
+
+**One callback left out, by shape not by axis.** `update_qc_stats` is store-only by design:
+it computes from the per-sample outputs dict in the store, not from a metrics CSV, and its
+numbers (pass/fail, mean reads, mean GC) would need a semantic reconstruction from
+`qc_overview.csv` / `qc_module_status.csv` — a third restore shape, not the metrics-path
+read. Deferred and noted here (NOT in the ASV registry — QC has no feature sets; this is a
+plain follow-up, unblocked, whenever). The stat cards stay blank on a cold load; the plots
+and the sample table — the page's substance — reconstruct.
+
+**Strong form.** `tests/test_qc_restore.py`: empty session stores + `store-project`, the
+mechanism reconstructs and the bytes match golden for `qc_length_distribution.csv` and
+`qc_overview.csv`; plus the wiring assertion. Seen failing, passing after. `golden.py check
+all` fixture+real: five layers, `no regressions`.
+
+**Eixo B is now complete** on every page that carried the session-restore bug —
+Preprocess, Databases (selector-free), Analysis (selector-free), QC. What remains is not
+Eixo B: the ASV registry (Eixo A, one harvest under an ASV golden) and phylo (no contract
+yet — the last hole in the net).
+
 ## 2026-07-17 — QC golden frozen. The "degenerate length histogram" was never a defect — and the net now covers a fifth stage.
 
 **The remembered defect does not exist, so there was nothing to freeze around.** An early

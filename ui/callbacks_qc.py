@@ -12,7 +12,7 @@ from core.models import AnalysisMode
 from qc.fastqc_runner import run_fastqc
 from ui.components.table import STYLE_CELL, data_table
 from ui.pipeline_state import _normalize_store, get_stage_record, stage_ready, stage_status, utc_now_iso
-from ui.runtime_state import resolve_project_data, run_config_from_store, serialize_step_output
+from ui.runtime_state import latest_run_dir, resolve_project_data, run_config_from_store, serialize_step_output
 
 
 def build_qc_summary(*args, **kwargs):
@@ -36,12 +36,16 @@ def build_qc_summary(*args, **kwargs):
     )
 
 
-def _qc_metric_paths(qc_data, run_config_data) -> dict[str, str]:
+def _qc_metric_paths(qc_data, run_config_data, project_data=None) -> dict[str, str]:
     """Locate the QC tables the runner persisted.
 
     Prefers the paths recorded on the stage record; falls back to the conventional
     location under the run's output directory so runs recorded before the metrics
     layer existed still render.
+
+    ``run_config_data`` is a per-session store: a fresh tab or a restarted app has it
+    empty, so ``output_dir`` is gone even though the run is on disk. Fall back to the
+    project's newest run (``latest_run_dir``, ordered by run_id) instead of blanking.
     """
     record = _normalize_store(qc_data)
     recorded = record.get("metrics_files") or {}
@@ -50,7 +54,10 @@ def _qc_metric_paths(qc_data, run_config_data) -> dict[str, str]:
         return paths
     output_dir = (run_config_data or {}).get("output_dir")
     if not output_dir:
-        return {}
+        run_dir = latest_run_dir(project_data) if project_data else None
+        if run_dir is None:
+            return {}
+        output_dir = str(run_dir)
     from qc.qc_metrics import build_qc_metrics, qc_metrics_paths
 
     qc_dir = Path(output_dir) / "qc"
@@ -129,8 +136,9 @@ def register_callbacks(app: Any) -> None:
         Output("qc-plots", "children"),
         Input("store-qc-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_qc_plots(qc_out, run_config_data):
+    def _render_qc_plots(qc_out, run_config_data, project_data):
         """Split the hero (read depth) from the secondary curves.
 
         Read depth is the one plot that decides whether the run is usable, so it stays
@@ -144,7 +152,7 @@ def register_callbacks(app: Any) -> None:
         def _graph(figure):
             return dcc.Graph(figure=figure, config={"displaylogo": False, "responsive": True})
 
-        paths = _qc_metric_paths(qc_out, run_config_data)
+        paths = _qc_metric_paths(qc_out, run_config_data, project_data)
         empty = html.Div("Run QC to see per-sample quality plots.", className="empty-state-sub")
         if not paths:
             return empty, empty
@@ -302,11 +310,12 @@ def register_callbacks(app: Any) -> None:
         Output("qc-sample-table", "children"),
         Input("store-qc-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_qc_sample_table(qc_data, run_config_data):
+    def _render_qc_sample_table(qc_data, run_config_data, project_data):
         import pandas as pd
 
-        paths = _qc_metric_paths(qc_data, run_config_data)
+        paths = _qc_metric_paths(qc_data, run_config_data, project_data)
         if "qc_overview_csv" not in paths:
             return html.Div("No QC results available yet.", className="empty-state-sub")
         try:
