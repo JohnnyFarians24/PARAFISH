@@ -1,0 +1,4 @@
+ASV_ID,feature_type,Consensus_Kingdom,Consensus_Phylum,Consensus_Class,Consensus_Order,Consensus_Family,Consensus_Genus,Consensus_Species,Best_Identity,Best_Coverage,Best_Source,Consensus_Sources,Reliability,BOLD_species,BOLD_similarity,BOLD_flags,SINTAX_species,SINTAX_bootstrap,Source_of_consensus,Warnings
+ASV1,ASV,Eukaryota,,,,,,Gadus_morhua_(Atlantic_cod),,,SILVA,PR2|SILVA,high,,,,,1.00,lca,
+ASV2,ASV,Eukaryota,,,,,,Gadus_morhua_(Atlantic_cod),,,SILVA,PR2|SILVA,high,,,,,1.00,lca,
+ASV3,ASV,Eukaryota,,,,,,Gadus_morhua_(Atlantic_cod),,,SILVA,PR2|SILVA,high,,,,,1.00,lca,

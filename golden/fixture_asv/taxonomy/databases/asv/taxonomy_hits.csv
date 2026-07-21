@@ -1,0 +1,7 @@
+ASV_ID,feature_type,hit_rank,source,rank,taxon,species,genus,family,identity,coverage,confidence,reliability,subject,evalue,bitscore
+ASV1,ASV,1,SILVA,species,Gadus_morhua_(Atlantic_cod),Gadus_morhua_(Atlantic_cod),,,,,1.00,high,,,
+ASV1,ASV,2,PR2,kingdom,Eukaryota,,,,,,1.00,high,,,
+ASV2,ASV,1,SILVA,species,Gadus_morhua_(Atlantic_cod),Gadus_morhua_(Atlantic_cod),,,,,1.00,high,,,
+ASV2,ASV,2,PR2,kingdom,Eukaryota,,,,,,1.00,high,,,
+ASV3,ASV,1,SILVA,species,Gadus_morhua_(Atlantic_cod),Gadus_morhua_(Atlantic_cod),,,,,1.00,high,,,
+ASV3,ASV,2,PR2,kingdom,Eukaryota,,,,,,1.00,high,,,

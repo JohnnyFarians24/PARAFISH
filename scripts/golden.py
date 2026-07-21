@@ -73,12 +73,27 @@ STAGES = {
         "checksum": ["analysis/pooled/otus.fasta", "analysis/dada2/asv_sequences.fasta"],
     },
     "taxonomy": {
+        # otu (fixture/real) and asv (fixture_asv) resolve by the same absent-guard.
+        # SOURCE ASYMMETRY, on purpose: the ASV set is SILVA+PR2 only — SINTAX is seeded and
+        # the two-run determinism gate passed, so it freezes clean. The OTU set still carries
+        # NCBI, whose public remote is not reproducible; that is INHERITED DEBT from before
+        # the determinism discipline was tightened (the QC/DADA2 gates), NOT a precedent. It
+        # survives only because golden checks the fixed run dir, not a fresh run. The
+        # run_config in each run's progress.json makes the source difference legible.
+        # taxonomy_hits.csv is contracted here because it is the supervisors' deliverable.
         "copy": [
             "databases/otu/taxonomy_consensus.csv",
             "databases/otu/source_assignments.csv",
             "databases/otu/source_status.csv",
             "databases/otu/conflict_report.csv",
+            "databases/otu/taxonomy_hits.csv",
             "databases/otu/metrics/taxonomic_resolution.csv",
+            "databases/asv/taxonomy_consensus.csv",
+            "databases/asv/source_assignments.csv",
+            "databases/asv/source_status.csv",
+            "databases/asv/conflict_report.csv",
+            "databases/asv/taxonomy_hits.csv",
+            "databases/asv/metrics/taxonomic_resolution.csv",
         ],
         "checksum": [],
     },

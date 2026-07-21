@@ -1,5 +1,36 @@
 # DEVLOG
 
+## 2026-07-17 — ASV harvest 3/3, step 1: fixture_asv taxonomy frozen (SILVA+PR2), and taxonomy_hits contracted.
+
+**Ran fixture_asv through databases and it fits the box.** qc→preprocess→analysis(dada2)→
+databases with SILVA+PR2, ~37 s, no OOM (551 MB free after) — the marker-filtered references
+(25 MB / 76 MB, already cached on disk) keep SINTAX inside RAM even at 2.8 GB. The stage wrote
+`databases/asv/` with the full taxonomy contract, including `taxonomy_hits.csv`.
+
+**Determinism gate before freezing, and it passed.** Two runs, byte-identical across all six
+taxonomy contract files (consensus, source_assignments, source_status, conflict_report,
+taxonomy_hits, taxonomic_resolution). SINTAX is seeded, so ASV taxonomy is a contract, not a
+sample — safe to freeze, unlike the unseeded case that started this whole discipline.
+
+**Sources: SILVA+PR2 only (option A), and the asymmetry is recorded as debt, not precedent.**
+The OTU golden carries NCBI, whose public remote is not reproducible; it was frozen before the
+QC/DADA2 determinism gates sharpened the rule, and survives only because golden checks a fixed
+run dir. Freezing the ASV set clean (deterministic sources) rather than matching OTU's NCBI is
+the disciplined choice; the `run_config` in each run's provenance makes the source difference
+legible between the two. Noted in `golden.py` at the taxonomy spec.
+
+**Deliverable contracted.** `taxonomy_hits.csv` is now frozen for both feature sets (otu in
+fixture/real, asv in fixture_asv) — it is the supervisors' evidence table, so it enters the
+net. `golden.py check all` clean: fixture, real (six layers) and fixture_asv (analysis +
+taxonomy).
+
+**Next in the harvest:** restore hits/consensus (Eixo B, measured = restore only), then build
+the one-row-per-feature derivation over both sets — with the metric design decided: NO
+cross-metric winner (that is the Phase-3 bug again). One row per feature carrying the consensus
+taxon (LCA), the best alignment hit (source, taxon, identity) and the best SINTAX hit (source,
+taxon, confidence) in SEPARATE columns, so a reader sees the call and whether the two evidence
+families agree.
+
 ## 2026-07-17 — BOLD's positive path is not untested — it is BROKEN against the real output format. Reported, not fixed.
 
 **The cheap pre-meeting probe found more than "never ran".** BOLD has produced zero
@@ -683,6 +714,16 @@ from one head.
 it from `golden/`, not from a tree the check itself mkdir'd. Where a fixture is genuinely
 needed (speed, edge cases), it must be **derived from a golden artifact**, never typed from
 the reader's expectations.
+
+**Third incarnation (2026-07-17), and it proves the rule is not about CSVs — it is about
+who built the fixture.** The BOLD positive-parsing probe: a synthetic DuckDB, hand-built to
+test `select_bold_top_hits`, used capitalised rank columns because that is what the parser
+reads — and it PASSED. The code agreed with itself, in a binary fixture this time. Only
+checking the synthetic against the REAL BOLDigger3 DuckDB (`golden_baseline/…`), whose ranks
+are lowercase, exposed that the parser blanks every real rank. Same failure as the 401 tests
+and `test_results_summary` — author's fixture inherits author's belief — now shown to apply
+to a DuckDB as squarely as to a CSV path. The fixture must be derived from, or validated
+against, the real artifact; its file format does not exempt it.
 
 ## 2026-07-17 — UI Phase, session 1 addendum: the layout drift is systemic, and the store is what hides it
 

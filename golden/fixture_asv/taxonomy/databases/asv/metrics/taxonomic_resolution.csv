@@ -1,0 +1,9 @@
+rank,n_features,pct_features,n_reads,pct_reads
+kingdom,0,0.0,0,0.0
+phylum,0,0.0,0,0.0
+class_,0,0.0,0,0.0
+order,0,0.0,0,0.0
+family,0,0.0,0,0.0
+genus,0,0.0,0,0.0
+species,3,100.0,8458,100.0
+unassigned,0,0.0,0,0.0
