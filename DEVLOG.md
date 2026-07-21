@@ -11,19 +11,66 @@ collected here as they are left behind, so that day is a harvest, not an excavat
 
 **The unblock is a single event:** generate a complete ASV/DADA2 golden run (itself a
 viability question on the 2.8 GB box — if it will not run, that is a finding about the
-machine, not the code). Once it exists, every row below gets a golden-anchored check that
-fails on today's "otu" assumption and passes on the resolved set — all in one session.
+machine, not the code). Once it exists, every row below gets a golden-anchored check.
 
-**Each row also still needs its Eixo B restore** (the `store-project` + `_resolve_output_dir`
-wiring), which was deferred WITH it rather than applied unproven — so the ASV session does
-both at once for these callbacks: session-restore and set-resolution, under one new golden.
+**Two categories, and they must not be merged — the ASV-day work on each is different:**
 
-| left by | callback | reads | why deferred |
+**A. Deferred-whole** — NOT touched this session, because the proof path runs through the
+feature-set selector or through ASV-only territory. These still need their Eixo B restore
+(the `store-project` + `_resolve_output_dir` wiring), deferred WITH the set concern rather
+than applied unproven. ASV-day work: BOTH session-restore AND set-resolution, at once.
+
+| left by | callback | reads | why whole-deferred |
 |---|---|---|---|
-| Databases (page 2/4) | `_render_hits` | best-hits table, per selected set | table is per-set; `databases-feature-set` drives it — right-set proof needs ASV golden |
-| Databases (page 2/4) | `_render_consensus` | `taxonomy_consensus.csv`, per selected set | same: consensus is per-set, selector-driven |
+| Databases (2/4) | `_render_hits` | best-hits table, per selected set | `databases-feature-set` drives it — right-set proof needs ASV golden |
+| Databases (2/4) | `_render_consensus` | `taxonomy_consensus.csv`, per selected set | consensus is per-set, selector-driven |
+| Analysis (3/4) | `_render_occupancy` | `occupancy_csv`, per selected set | the ONE feature-set selector (`analysis-occupancy-set`) |
+| Analysis (3/4) | `_render_dada2_tracking` | DADA2 read-tracking | ASV-only, store-only, no `output_dir` path to reconstruct |
+| Analysis (3/4) | `_update_analysis_stats` | store-recorded FASTA/consensus paths | distinct restore shape (file-paths-in-store, not metrics dir) + mixed OTU/ASV content — reapproach whole with ASV golden |
 
-_(Analysis 3/4 will add its occupancy/rarefaction selector widgets here when it lands.)_
+**B. Residual** — Eixo B restore DONE and PROVEN this session, but the code carries an
+`"otu"`-assuming resolver (`_analysis_metric_paths`), so on an ASV run these reconstruct OTU
+rather than ASV. This is a latent Eixo A bug inside Eixo-B-complete code — the restore is
+right and green. ASV-day work: only swap the hardcoded `"otu"` for the resolved set and
+confirm the already-proven restore stays green. Less work, different in kind.
+
+| left by | callbacks | residual |
+|---|---|---|
+| Analysis (3/4) | `_render_chimera_stats`, `_render_alpha_diversity`, `_render_otu_table`, `_render_analysis_sample_table`, `_render_analysis_plots`, `_render_upset` | reconstruct via `_analysis_metric_paths` / `_find_abundance_matrix`, both OTU-first; swap `"otu"` → resolved set when the ASV golden exists |
+
+## 2026-07-17 — UI Eixo B, page 3/4: Analysis reconstructs from disk. Two categories opened in the registry; QC still last.
+
+**The complex page, the finer line — drawn before touching it.** Analysis is the widest
+render surface and the first where the provable/deferred line was not obvious. Mapped it
+first, as instructed. Two resolvers feed the selector-free callbacks, and both got the disk
+fallback: `_analysis_metric_paths` (otu-assuming metrics helper) and `_find_abundance_matrix`
+(otu-first abundance table). Added a local `_resolve_output_dir` (session store → run_id-
+ordered `latest_run_dir`) and wired `store-project` into six callbacks: chimera, alpha,
+otu-table, sample-table, plots, upset.
+
+**A presentation selector is not a feature-set selector.** `_render_otu_table` carries
+`analysis-abundance-mode` (relative/absolute) — an orthogonal presentation axis, not
+OTU-vs-ASV. Classifying it by the word "selector" would have deferred a callback that is
+fully provable. The only feature-set selector on the page is `analysis-occupancy-set`
+(`_render_occupancy`), and that one is deferred. Distinguishing the selector that picks a
+feature set (blocked) from the one that picks a display mode (harmless) is what avoids both
+the false-block and the false-advance.
+
+**The registry now carries two categories, kept apart on purpose** (see LIVING LIST above):
+- *Deferred-whole* — Eixo B restore NOT done: `_render_occupancy` (feature-set selector),
+  `_render_dada2_tracking` (ASV-only, no disk path), `_update_analysis_stats` (distinct
+  restore shape — store-recorded FASTA paths, not a metrics dir — plus mixed OTU/ASV; would
+  cost a third restore pattern for half a callback, so deferred whole).
+- *Residual* — the six above: Eixo B DONE and proven, carrying an `"otu"` constant. ASV-day
+  work is a constant-swap, not a restore. Merging the two categories would, on ASV-golden
+  day, hide which callbacks need a from-scratch restore and which need one line changed.
+
+**Strong form, three frozen anchors.** `tests/test_analysis_restore.py`: with empty session
+stores and only `store-project`, the mechanism reconstructs and the bytes match golden for
+`chimera_stats.csv`, `alpha_diversity.csv` and `otu_matrix.csv`; plus a wiring assertion over
+all six against the real dependency graph. Seen failing on the tree, passing after.
+`golden.py check all` fixture+real: `no regressions`. Suite `415 passed` (412 + 3). The
+callback-smoke test firing every rewired callback proves the six new signatures do not break.
 
 ## 2026-07-17 — UI Eixo B, page 2/4: Databases reconstructs from disk — the selector-free tabs, kept clear of Eixo A.
 

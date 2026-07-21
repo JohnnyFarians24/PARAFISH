@@ -13,7 +13,7 @@ from analysis.dada2_runner import run_dada2
 from analysis.vsearch_runner import run_vsearch_filter_sample, run_vsearch_pool_and_cluster
 from ui.components.table import data_table
 from ui.pipeline_state import _normalize_store, get_stage_record, stage_ready, stage_status, utc_now_iso
-from ui.runtime_state import run_config_from_store, samples_from_store, serialize_step_output, build_sample_from_record
+from ui.runtime_state import run_config_from_store, samples_from_store, serialize_step_output, build_sample_from_record, latest_run_dir
 
 
 
@@ -42,7 +42,23 @@ def run_analysis(*args, **kwargs):
 
 
 
-def _analysis_metric_paths(analysis_data, run_config_data) -> dict[str, str]:
+def _resolve_output_dir(run_config_data, project_data=None) -> str | None:
+    """The run's output directory, from the session store or reconstructed from disk.
+
+    ``run_config_data`` is per-session: a fresh tab or a restarted app has it empty, so
+    ``output_dir`` is gone even though the run is on disk. Fall back to the project's newest
+    run (``latest_run_dir``, ordered by run_id, not mtime) instead of blanking. Eixo B only:
+    it resolves WHICH run, never which feature set — the ``otu`` assumption below is a
+    separate (Eixo A) concern, tracked in the living registry, unblocked by an ASV golden.
+    """
+    output_dir = (run_config_data or {}).get("output_dir")
+    if output_dir:
+        return str(output_dir)
+    run_dir = latest_run_dir(project_data) if project_data else None
+    return str(run_dir) if run_dir else None
+
+
+def _analysis_metric_paths(analysis_data, run_config_data, project_data=None) -> dict[str, str]:
     """Locate the analysis tables the runner persisted.
 
     Unlike QC and Preprocess there is no cheap rebuild here: rarefaction is a
@@ -54,7 +70,7 @@ def _analysis_metric_paths(analysis_data, run_config_data) -> dict[str, str]:
     paths = {key: value for key, value in recorded.items() if isinstance(value, str) and Path(value).exists()}
     if paths:
         return paths
-    output_dir = (run_config_data or {}).get("output_dir")
+    output_dir = _resolve_output_dir(run_config_data, project_data)
     if not output_dir:
         return {}
     from analysis.analysis_metrics import analysis_metrics_paths
@@ -173,11 +189,12 @@ def register_callbacks(app: Any) -> None:
         Output("analysis-chimera", "children"),
         Input("store-analysis-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_chimera_stats(analysis_data, run_config_data):
+    def _render_chimera_stats(analysis_data, run_config_data, project_data):
         import pandas as pd
 
-        paths = _analysis_metric_paths(analysis_data, run_config_data)
+        paths = _analysis_metric_paths(analysis_data, run_config_data, project_data)
         if "chimera_stats_csv" not in paths:
             return html.Div("Run the analysis stage to see chimera detection results.", className="empty-state-sub")
         try:
@@ -241,11 +258,12 @@ def register_callbacks(app: Any) -> None:
         Output("analysis-alpha-table", "children"),
         Input("store-analysis-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_alpha_diversity(analysis_data, run_config_data):
+    def _render_alpha_diversity(analysis_data, run_config_data, project_data):
         import pandas as pd
 
-        paths = _analysis_metric_paths(analysis_data, run_config_data)
+        paths = _analysis_metric_paths(analysis_data, run_config_data, project_data)
         if "alpha_diversity_csv" not in paths:
             return "", html.Div(_EMPTY, className="empty-state-sub")
         try:
@@ -287,13 +305,14 @@ def register_callbacks(app: Any) -> None:
         Output("analysis-upset", "children"),
         Input("store-analysis-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_upset(analysis_data, run_config_data):
+    def _render_upset(analysis_data, run_config_data, project_data):
         import pandas as pd
 
         from ui.plots import upset_figure
 
-        paths = _analysis_metric_paths(analysis_data, run_config_data)
+        paths = _analysis_metric_paths(analysis_data, run_config_data, project_data)
         if "intersections_csv" not in paths:
             return html.Div(_EMPTY, className="empty-state-sub")
         try:
@@ -325,15 +344,16 @@ def register_callbacks(app: Any) -> None:
         Output("analysis-sample-table", "children"),
         Input("store-analysis-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_analysis_sample_table(analysis_data, run_config_data):
+    def _render_analysis_sample_table(analysis_data, run_config_data, project_data):
         from analysis.sample_comparison import build_comparison
         from ui.callbacks_results import _find_abundance_matrix
 
         outputs = _normalize_store(analysis_data).get("outputs") or {}
         # Per-sample reads/richness come from the abundance matrix, the only place
         # the runners actually record them (the filter step emits no metrics).
-        matrix_path = _find_abundance_matrix(outputs, (run_config_data or {}).get("output_dir"))
+        matrix_path = _find_abundance_matrix(outputs, _resolve_output_dir(run_config_data, project_data))
         if not matrix_path:
             return html.Div(_EMPTY, className="empty-state-sub")
         data = build_comparison(matrix_path)
@@ -369,14 +389,15 @@ def register_callbacks(app: Any) -> None:
         Input("store-analysis-outputs", "data"),
         Input("analysis-abundance-mode", "value"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_otu_table(analysis_data, mode, run_config_data):
+    def _render_otu_table(analysis_data, mode, run_config_data, project_data):
         import pandas as pd
 
         from ui.callbacks_results import _find_abundance_matrix
 
         outputs = _normalize_store(analysis_data).get("outputs") or {}
-        matrix_path = _find_abundance_matrix(outputs, (run_config_data or {}).get("output_dir"))
+        matrix_path = _find_abundance_matrix(outputs, _resolve_output_dir(run_config_data, project_data))
         if not matrix_path:
             return html.Div(_EMPTY, className="empty-state-sub")
         try:
@@ -417,8 +438,9 @@ def register_callbacks(app: Any) -> None:
         Output("analysis-plots", "children"),
         Input("store-analysis-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_analysis_plots(analysis_data, run_config_data):
+    def _render_analysis_plots(analysis_data, run_config_data, project_data):
         import pandas as pd
 
         from analysis.sample_comparison import build_comparison
@@ -431,7 +453,7 @@ def register_callbacks(app: Any) -> None:
             rank_abundance_figure,
         )
 
-        paths = _analysis_metric_paths(analysis_data, run_config_data)
+        paths = _analysis_metric_paths(analysis_data, run_config_data, project_data)
         figures = []
         try:
             if "rarefaction_csv" in paths:
@@ -450,7 +472,7 @@ def register_callbacks(app: Any) -> None:
 
         header = None
         outputs = _normalize_store(analysis_data).get("outputs") or {}
-        matrix_path = _find_abundance_matrix(outputs, (run_config_data or {}).get("output_dir"))
+        matrix_path = _find_abundance_matrix(outputs, _resolve_output_dir(run_config_data, project_data))
         if matrix_path:
             data = build_comparison(matrix_path)
             if not data.get("error"):
