@@ -74,8 +74,13 @@ def _analysis_metric_paths(analysis_data, run_config_data, project_data=None) ->
     if not output_dir:
         return {}
     from analysis.analysis_metrics import analysis_metrics_paths
+    from ui.feature_sets import resolve_feature_set
 
-    return {key: str(path) for key, path in analysis_metrics_paths(Path(output_dir) / "analysis").items()}
+    # These callbacks carry no set selector, so render whichever set the run produced —
+    # asv for a DADA2-only run, otu otherwise. resolve_feature_set reads the recorded sets
+    # (or falls to disk when the store is empty), so this stays right in a fresh session.
+    feature_set = resolve_feature_set(None, record.get("outputs") or {}, output_dir)
+    return {key: str(path) for key, path in analysis_metrics_paths(Path(output_dir) / "analysis", feature_set).items()}
 
 
 def _download_link(path_value, label: str):

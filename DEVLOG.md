@@ -1,5 +1,35 @@
 # DEVLOG
 
+## 2026-07-17 — ASV harvest 1/3: the Analysis residual was ONE resolver, not six callbacks.
+
+**The registry said "six residual callbacks"; the anchor let me check, and it was narrower.**
+Behind the six selector-free Analysis callbacks sit two resolvers, and only one carried the
+`"otu"` assumption:
+
+- **Resolver A — `_analysis_metric_paths`** — hardcoded `"otu"`: on the fixture_asv run it
+  returned `{}` (metrics/otu absent), blanking alpha / plots / upset. Fixed: resolve the
+  feature set from what the run produced (`resolve_feature_set(None, outputs, output_dir)` —
+  recorded sets, or a disk scan when the store is empty), then read `metrics/<set>/`.
+- **Resolver B — `_find_abundance_matrix`** — was ALREADY set-adaptive by its fallback order
+  (otu_matrix → otu_table → asv_abundance), so otu-table / sample-table already rendered ASV.
+  Locked with a test, not changed — it was never otu-hardcoded. Claiming otherwise and
+  "fixing" it would have been a change with no failing check under it.
+
+So the residual is a one-line resolution swap on resolver A, and `chimera_stats` stays
+OTU-only by nature (DADA2 removes chimeras internally) — resolver A correctly yields no
+`chimera_stats_csv` on an ASV run, so `_render_chimera_stats` shows empty, which is right.
+
+**Proven both directions against the anchor.** `tests/test_analysis_asv_residual.py`:
+resolver A reconstructs `metrics/asv/alpha_diversity.csv` and `rank_abundance.csv` byte-for-
+byte against `golden/fixture_asv` (seen failing as `{}` before the fix); resolver B locked to
+`asv_abundance.csv`. The OTU restore stays green — `resolve_feature_set` returns `otu` for an
+OTU run, so `test_analysis_restore.py` is unchanged. `golden.py check` clean on fixture, real
+(five layers) and fixture_asv.
+
+**Harvest remaining:** `_render_occupancy` (deferred-whole, unblocked by this same anchor —
+next), then `_render_hits` + `_render_consensus` (need a frozen fixture_asv *taxonomy* layer,
+their own session with its determinism gate on the taxonomy sources).
+
 ## 2026-07-17 — ASV golden frozen (fixture_asv). The harvest's anchor exists; DADA2 is deterministic, so it was safe to freeze.
 
 **Determinism gate first, before freezing anything — the SINTAX lesson.** Two DADA2 runs
