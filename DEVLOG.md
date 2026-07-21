@@ -1,5 +1,36 @@
 # DEVLOG
 
+## 2026-07-17 — ASV harvest 3/3, step 2: hits/consensus restored — and, measured, the scope was restore only.
+
+**The last two deferred callbacks, and the same finding as occupancy: the right-set half was
+never broken.** `_render_hits` and `_render_consensus` were the two SELECTOR callbacks
+`test_databases_restore.py` left out — proving they reconstruct the RIGHT set was the Eixo A
+"otu-hardcoded" problem, unprovable without an ASV golden. With `golden/fixture_asv/taxonomy`
+now frozen (step 1), I could finally measure, and the set-honoring was already correct:
+`_load_hits_frame` / `_find_consensus_csv` thread `feature_set` straight through
+`taxonomy_file`, which resolves `databases/<set>/…` and returns nothing when the set is absent.
+The only real gap was the Eixo B restore — both callbacks read `output_dir` off the per-session
+`store-run-config`, so a fresh tab blanked them. So the fix is the plain restore wiring, nothing
+about the selector: `_resolve_output_dir(run_config_data, project_data)` + a `store-project`
+State on each, and the same on `_download_hits` so the export cannot diverge from the screen on
+a reconstructed session.
+
+**Proven, strong form.** `tests/test_databases_hits_consensus_asv.py`: the reconstructed run
+dir feeds the selected set's hits and consensus tables — asv byte-identical to
+`golden/fixture_asv` (hits and consensus), and `otu` on an asv-only run yields nothing (the set
+is honored, not defaulted). Wiring seen to fail first (both render callbacks did not declare
+`store-project`), passing after; the two logic proofs pass either way, which is exactly the
+occupancy result — the resolver was sound, only the callback could not see the project. Full
+suite 423 passed / 3 skipped; `golden.py check all` clean on fixture, real and fixture_asv.
+
+**Harvest done; the derivation is next, and it is a NEW build, not a restore.** One row per
+feature carrying the consensus taxon (LCA), the best alignment hit and the best SINTAX hit in
+SEPARATE columns — no cross-metric winner (the Phase-3 bug). Open decision, filed for its own
+session: it must live as a file WRITTEN BY THE PIPELINE (contractable in the golden like
+`taxonomy_hits.csv`, and the file is what the supervisors take), with the UI RENDERING that same
+file rather than recomputing — one source, two consumers, the Phase-2 single-source-of-abundance
+principle, so the screen table cannot diverge from the download.
+
 ## 2026-07-17 — ASV harvest 3/3, step 1: fixture_asv taxonomy frozen (SILVA+PR2), and taxonomy_hits contracted.
 
 **Ran fixture_asv through databases and it fits the box.** qc→preprocess→analysis(dada2)→

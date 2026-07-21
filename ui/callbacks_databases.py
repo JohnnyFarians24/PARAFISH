@@ -336,11 +336,12 @@ def register_callbacks(app: Any) -> None:
         Input("hits-min-coverage", "value"),
         Input("hits-top-n", "value"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_hits(db_out, feature_set, min_identity, min_coverage, top_n, run_config_data):
+    def _render_hits(db_out, feature_set, min_identity, min_coverage, top_n, run_config_data, project_data):
         db = _normalize_store(db_out)
         outputs = db.get("outputs") or {}
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
         feature_set = feature_set or "otu"
 
         frame, error = _load_hits_frame(outputs, run_output_dir, feature_set, min_identity or 0, min_coverage or 0, top_n or 0)
@@ -388,15 +389,16 @@ def register_callbacks(app: Any) -> None:
         State("hits-min-coverage", "value"),
         State("hits-top-n", "value"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
         prevent_initial_call=True,
     )
-    def _download_hits(n_clicks, db_out, feature_set, min_identity, min_coverage, top_n, run_config_data):
+    def _download_hits(n_clicks, db_out, feature_set, min_identity, min_coverage, top_n, run_config_data, project_data):
         """Export exactly what the user is looking at, as one flat table."""
         if not n_clicks:
             raise PreventUpdate
         db = _normalize_store(db_out)
         outputs = db.get("outputs") or {}
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
         feature_set = feature_set or "otu"
         frame, error = _load_hits_frame(outputs, run_output_dir, feature_set, min_identity or 0, min_coverage or 0, top_n or 0)
         if frame is None or error or frame.empty:
@@ -797,13 +799,14 @@ def register_callbacks(app: Any) -> None:
         Input("store-databases-outputs", "data"),
         Input("databases-feature-set", "value"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _render_consensus(db_out, feature_set, run_config_data):
+    def _render_consensus(db_out, feature_set, run_config_data, project_data):
         from ui.feature_sets import FEATURE_SET_NOUN
 
         db = _normalize_store(db_out)
         outputs = db.get("outputs") or {}
-        run_output_dir = (run_config_data or {}).get("output_dir")
+        run_output_dir = _resolve_output_dir(run_config_data, project_data)
         feature_set = feature_set or "otu"
         noun = FEATURE_SET_NOUN.get(feature_set, "feature")
 
