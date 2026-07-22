@@ -1,5 +1,53 @@
 # DEVLOG
 
+## 2026-07-22 — MAP (audit, no fixes): the ASV branches written but proven only for OTU, grouped by what proves each.
+
+**What this is.** Task 3: an inventory, not a correction. Nothing is fixed here — fixing a branch
+that cannot be proven is writing against a check that does not fail, which this project refuses.
+The deliverable is a map so that when an ASV dataset lands the proof is mechanical: each site with
+the check that fails, waiting for its artifact.
+
+**Reconcile first — most of the old LIVING LIST (below, 2026-07-1x) is already CLOSED.** That list
+predates the ASV harvest. `fixture_asv` (3 ASVs) has since exercised the analysis metrics, the
+taxonomy, AND the Eixo-A/B restore + right-set of the harvest callbacks (`_render_hits`,
+`_render_consensus`, `_render_occupancy`, the six Analysis residual callbacks) — those rows are
+done and green against `fixture_asv`. So 3 features was enough for everything EXCEPT what needs
+more. What remains is below, grouped BY WHAT PROVES IT — the requirement differs per group and they
+must not be merged.
+
+**GROUP 1 — needs a fixture ASV with ≥4 features.** `fixture_asv` has 3 ASVs; FastTree's floor is
+4 (`MIN_TREE_SEQUENCES`), so the whole phylo/asv branch cannot run against it. Written, resolves
+`asv`, proven for `otu` only.
+
+| site | where | proven only for otu by | what proves the asv branch |
+|---|---|---|---|
+| phylo per-set writer | `ui/callbacks_progress.py:867,885` (`phylo/<key>/`) | golden phylo freezes `phylo/otu/*` (`scripts/golden.py:134–139`) | run phylo on a ≥4 ASV set → freeze `golden/fixture_asv/phylo` |
+| phylo readers (per-set→flat) | `ui/feature_sets.py` `phylo_dir` / `phylo_tree_path` / `phylo_artifact` | `tests/test_phylo_golden.py` asserts `phylo_tree_path(..,"asv")` is **None** (no asv tree exists) | same ≥4 set → the None assertion flips to a real tree; extend the test with an asv reconstruction |
+| phylo UI/results readers | `callbacks_phylo._phylo_kpis`/`_render_annotated_tree`/`_mapping_csv`/`_phylo_metric_paths`; `callbacks_ordination` (~145); `callbacks_results_summary._phylo_card` + `_EXPORTS` phylo rows | all hardcode/resolve `otu`; no asv phylo artifact to render | ≥4 asv phylo output on disk → the same resolvers exercised for `asv` |
+
+**GROUP 2 — provable with the EXISTING `fixture_asv` (3 features); NO new data, only a contract +
+check.** The databases stage already WRITES the asv export — `runs/_fixture_asv/current/databases/asv/`
+carries `phyloseq/*`, `taxa_tables/*` and `table.biom` — but `golden.py`'s export stage freezes only
+the `otu` paths, so the asv export travels unproven.
+
+| site | where | gap | what proves it |
+|---|---|---|---|
+| export/asv | `databases/asv/{phyloseq,taxa_tables,table.biom}` (produced), `scripts/golden.py` export stage = otu-only | no golden contract, no test | add the asv paths to the export spec + `freeze export --dataset fixture_asv` (3 features suffice; biom `date` already handled by the volatile-field guard) |
+
+**GROUP 3 — related asv gaps with a DIFFERENT requirement — do NOT bundle under "≥4".** Listed so
+the data phase does not mistake them for phylo-class items.
+
+| site | where | needs |
+|---|---|---|
+| `feature_set_comparison` | `analysis/feature_set_comparison.py`; UI `databases-feature-comparison` | a run with BOTH methods in one output dir (otu AND asv) — neither `fixture` (otu-only) nor `fixture_asv` (asv-only) has both. Needs a dual-method fixture, not a bigger ASV one |
+| `scripts/verify.py` | checks `analysis/pooled/otu_table.tsv`, `otu_matrix.csv`, `databases/otu/*` | asv-aware checks (or a parallel asv pass); an ASV run is currently unverified by verify.py |
+| `_render_dada2_tracking`, `_update_analysis_stats` | `ui/callbacks_analysis.py:237,527` | still store-only (blank on restore) — the deferred-whole rows from the LIVING LIST below; provable with existing `fixture_asv` once their Eixo B restore is wired (session-restore axis, not the ≥4 axis) |
+
+**Consumption order when the data lands.** A ≥4-feature ASV dataset closes Group 1 in one harvest
+(run phylo, freeze `golden/fixture_asv/phylo`, flip the `None` assertion). Group 2 needs no dataset
+at all and could close any time against `fixture_asv`. Group 3 items each need their own distinct
+artifact and should be scheduled separately, not folded into the ≥4 event.
+
 ## 2026-07-22 — update_qc_stats restored: the QC KPI cards reconstruct the RIGHT values from the golden qc, a third restore form.
 
 **The last store-only callback, left out by shape not by axis, now closes the session-restore
