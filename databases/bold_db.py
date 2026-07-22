@@ -434,6 +434,23 @@ _BOLD_RANK_BY_THRESHOLD = ["Species", "Genus", "Family", "Order"]
 _BOLD_RANK_ORDER = ["Phylum", "Class", "Order", "Family", "Genus", "Species"]
 
 
+def _match_rank_column(rank: str, columns) -> Optional[str]:
+	"""The DataFrame column holding a rank, matched case-insensitively.
+
+	BOLDigger3 3.x writes the Linnaean ranks LOWERCASE (``phylum``..``species``) in the
+	``id_engine_results`` DuckDB, but ``_BOLD_RANK_ORDER`` is capitalised (for the output
+	table and the case-insensitive consensus reader). Matching input columns by exact case
+	found nothing and blanked every rank even for a 99% hit — a positive BOLD result would
+	arrive with identity but no taxonomy. Match by folded case so the real lowercase store,
+	and any capitalised variant, both resolve.
+	"""
+	target = rank.strip().lower()
+	for column in columns:
+		if str(column).strip().lower() == target:
+			return str(column)
+	return None
+
+
 def select_bold_top_hits(hits, thresholds: List[int]) -> "pd.DataFrame":
 	"""Collapse BOLD's many hits per query into one top hit each.
 
@@ -462,10 +479,11 @@ def select_bold_top_hits(hits, thresholds: List[int]) -> "pd.DataFrame":
 		row = {"id": query_id, "pct_identity": round(top_identity, 3)}
 		allowed = _BOLD_RANK_ORDER[: _BOLD_RANK_ORDER.index(level) + 1]
 		for rank in _BOLD_RANK_ORDER:
-			if rank not in eligible.columns or rank not in allowed:
+			source_col = _match_rank_column(rank, eligible.columns)
+			if source_col is None or rank not in allowed:
 				row[rank] = ""
 				continue
-			values = eligible[rank].dropna().astype(str)
+			values = eligible[source_col].dropna().astype(str)
 			values = values[values.str.strip().astype(bool)]
 			row[rank] = values.mode().iloc[0] if not values.empty else ""
 		for extra in ("bin_uri", "process_id"):

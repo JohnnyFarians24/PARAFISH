@@ -11,14 +11,14 @@ The synthetic DuckDB below uses the REAL BOLDigger3 3.x schema — verified agai
 ``pct_identity``, and the Linnaean ranks in **lowercase** (``phylum``..``species``), plus
 ``bin_uri`` / ``process_id``.
 
-Two findings:
-  * ``_read_id_engine_hits`` reads the store correctly — TESTED, passes.
-  * ``select_bold_top_hits`` looks up ranks by ``_BOLD_RANK_ORDER`` = ``["Phylum".."Species"]``
-    (CAPITALISED), which are absent from the lowercase DuckDB, so it blanks every rank even
-    for a 99.5% hit. A real positive BOLD result would arrive with identity but no taxonomy.
-    Marked ``expectedFailure`` — a known bug, NOT fixed here (reported for a supervisor
-    decision on whether "BOLD functional" can be promised). When the case mismatch is fixed,
-    this flips to an unexpected success and forces the marker off.
+Two findings, both now GREEN:
+  * ``_read_id_engine_hits`` reads the store correctly.
+  * ``select_bold_top_hits`` USED TO look up ranks by ``_BOLD_RANK_ORDER`` =
+    ``["Phylum".."Species"]`` (CAPITALISED), which are absent from the lowercase DuckDB, so it
+    blanked every rank even for a 99.5% hit — a positive BOLD result arrived with identity but
+    no taxonomy. FIXED: the rank columns are matched case-insensitively (``_match_rank_column``),
+    so the real lowercase store, and any capitalised variant, both resolve. The
+    ``expectedFailure`` marker is gone; a regression that re-blanks the species fails loudly.
 """
 
 from __future__ import annotations
@@ -68,7 +68,6 @@ class BoldPositiveParsingTests(unittest.TestCase):
             self.assertEqual(set(hits["id"]), {"ASV1"})
             self.assertEqual(float(hits["pct_identity"].max()), 99.5)
 
-    @unittest.expectedFailure  # KNOWN BUG: rank lookup is capitalised, real columns are lowercase.
     def test_select_bold_top_hits_fills_species_for_a_99pct_hit(self):
         from databases.bold_db import _read_id_engine_hits, select_bold_top_hits
 
@@ -77,7 +76,8 @@ class BoldPositiveParsingTests(unittest.TestCase):
             self._write_duckdb(tmp)
             hits = _read_id_engine_hits(tmp, "query")
             top = select_bold_top_hits(hits, [97, 95, 90, 85]).to_dict("records")[0]
-            # A 99.5% hit must earn a species — today it comes back blank.
+            # A 99.5% hit earns its species — the case-insensitive rank match resolves the
+            # lowercase DuckDB columns that used to blank it.
             self.assertEqual(top.get("Species") or top.get("species"), "Diplostomum pseudospathaceum")
 
 
