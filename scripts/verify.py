@@ -35,8 +35,10 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Ranks that must never be invented into a Linnean slot. Opisthokonta is a PR2
 # supergroup and Craniata a subphylum-ish clade; both appeared because a source's
@@ -160,6 +162,24 @@ def _present_sets(run: Path) -> list[str]:
     still SKIPs loudly rather than falling silent.
     """
     return [fset for fset in FEATURE_SETS if _abundance_table(run, fset)[0].exists()]
+
+
+def _requested_sources(run: Path) -> Optional[set[str]]:
+    """The db_sources the run was ASKED for, from progress.json's run_config (upper-cased).
+
+    This is the record of what was REQUESTED, written at init — distinct from what arrived,
+    which is exactly the distinction check (f) needs to tell a config choice from a death.
+    Returns ``None`` when provenance does not record the request (older runs), so the caller
+    can fall back rather than mistake "unrecorded" for "nothing requested".
+    """
+    try:
+        progress = json.loads((run / "progress.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    db_sources = (progress.get("run_config") or {}).get("db_sources")
+    if db_sources is None:
+        return None
+    return {str(source).strip().upper() for source in db_sources if str(source).strip()}
 
 
 # ── (a) read totals ──────────────────────────────────────────────────────
@@ -475,22 +495,41 @@ def check_linnean_backbone(run: Path, report: Report, fset: str) -> None:
     filled = sum(
         1 for row in rows if any(_norm(row.get(f"Consensus_{rank}")) for rank in ("Phylum", "Class", "Order", "Family"))
     )
-    if not linnean:
-        status_note = ""
-        for row in _read_csv(_db_dir(run, fset) / "source_status.csv"):
-            if (row.get("source") or "").strip().upper() in LINNEAN_SOURCES:
-                status_note += f" · {row.get('source')}={row.get('status')}"
+    if linnean:
         report.add(
-            "FAIL",
+            "PASS",
             name,
-            f"no Linnean source fed any feature's consensus (saw: {'|'.join(sorted(contributing)) or 'none'})"
-            f"{status_note} — Phylum..Family cannot be filled by SILVA/PR2, whose backbones are not Linnean",
+            f"{'|'.join(sorted(linnean))} · {filled}/{len(rows)} features with Phylum..Family",
         )
         return
+
+    # No Linnean source reached the consensus. Whether that is a FAILURE or simply
+    # not-applicable depends on what was REQUESTED, read from provenance — not from what
+    # arrived. An alarm that fires on a source nobody asked for (SILVA+PR2-only runs, where
+    # empty Phylum..Family is a marker choice) trains the user to ignore it, and then it stops
+    # guarding the case it exists for: a Linnean source that WAS requested and died. Same
+    # distinction check (e) draws between skipped/not_applicable and failed, fed by run_config.
+    requested = _requested_sources(run)
+    requested_linnean = (requested & LINNEAN_SOURCES) if requested is not None else None
+    if requested is not None and not requested_linnean:
+        report.add(
+            "SKIP",
+            name,
+            f"no Linnean source was requested (db_sources={'|'.join(sorted(requested)) or 'none'}); "
+            "empty Phylum..Family is a config choice, not a failure",
+        )
+        return
+
+    status_note = ""
+    for row in _read_csv(_db_dir(run, fset) / "source_status.csv"):
+        if (row.get("source") or "").strip().upper() in LINNEAN_SOURCES:
+            status_note += f" · {row.get('source')}={row.get('status')}"
+    asked = f"requested {'|'.join(sorted(requested_linnean))} but " if requested_linnean else ""
     report.add(
-        "PASS",
+        "FAIL",
         name,
-        f"{'|'.join(sorted(linnean))} · {filled}/{len(rows)} features with Phylum..Family",
+        f"{asked}no Linnean source fed any feature's consensus (saw: {'|'.join(sorted(contributing)) or 'none'})"
+        f"{status_note} — a requested Linnean source did not reach the consensus",
     )
 
 

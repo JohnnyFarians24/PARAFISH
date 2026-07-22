@@ -1,5 +1,36 @@
 # DEVLOG
 
+## 2026-07-22 — verify.py check (f) now reads provenance: a Linnean absence that was CHOSEN is not-applicable, one that DIED still fails.
+
+**The decision from the previous entry, implemented.** Making verify ASV-aware surfaced `(f/asv)`
+failing on `fixture_asv` (SILVA+PR2-only → no Linnean backbone). The call: (f) should draw the same
+line (e) already draws — an alarm that fires on an absence the user CHOSE (no Linnean source
+requested) trains them to ignore it, and then it stops guarding the case it exists for, a requested
+Linnean source that DIED. So exempt "never requested", keep the alarm for "requested and absent".
+
+**The implementation trap, and where recording db_sources at init pays off.** To tell "not requested"
+from "requested and died", (f) must read what was ASKED FOR, not what arrived — and that only exists
+because the run's requested sources are written to `progress.json`'s `run_config` at init.
+`_requested_sources(run)` reads `run_config.db_sources`; the decision is: a Linnean source
+CONTRIBUTED to the consensus → PASS (unchanged); else no Linnean requested (and the request is
+recorded) → SKIP (config choice, not a failure); else (requested-but-absent, OR the request is
+unrecorded) → FAIL. The PASS-on-contribution comes first, so the OTU fixture — whose `run_config` is
+empty in progress.json but whose consensus NCBI really fed — stays PASS without depending on the
+provenance at all.
+
+**Seen to fail on BOTH sides.** Config choice: the committed (pre-provenance) verify FALSE-ALARMS —
+`(f/asv)` FAIL on `fixture_asv` (db_sources=silva|pr2); the new code SKIPs it (`config choice, not a
+failure`). Death: a scratch run with `ncbi` added to db_sources but absent from the consensus →
+`(f/asv)` FAIL (`requested NCBI but no Linnean source fed…`), exit 1 — the guard preserved. Both
+locked in `tests/test_verify_asv.py` (config-choice→SKIP, requested-died→FAIL, contributed→PASS,
+unrecorded→FAIL fallback).
+
+`verify.py runs/_fixture_asv/current` now exits 0 (5 passed · 0 failed · 2 skipped — (f/asv)
+not-applicable and (g) the OTU-only reader probe); no false alarm on the committed fixture. OTU
+unchanged. Full suite 452 passed; `golden check all` clean. This truly closes the verify prerequisite
+before the data phase, which will run datasets with and without Linnean sources and needs (f) telling
+the two apart from the first run.
+
 ## 2026-07-22 — verify.py made ASV-aware: the blind instrument now sees an ASV run, and the blindness was seen over a real defect first.
 
 **The prerequisite of the data phase, closed.** verify.py's seven checks all read `databases/otu/`
@@ -35,6 +66,7 @@ fires. In a PRODUCTION ASV run with a Linnean source (the COI+BOLD demo had BOLD
 source that was never SELECTED (a config choice, `skipped`/`not_applicable` in source_status) from
 one that ran and DIED — the way (e) already distinguishes them. (f) is deliberately cause-agnostic
 today; softening it is a real semantic change and yours to make, so it is flagged, not made.
+**[RESOLVED 2026-07-22 — see entry above: (f) now reads provenance and draws exactly this line.]**
 
 `verify.py runs/_fixture_asv/current` now exits 1 for that true reason (the tool is manual, in no
 CI gate, so nothing automated regresses). OTU unchanged: `runs/_fixture/current` still 7 passed ·
