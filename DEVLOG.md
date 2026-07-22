@@ -15,6 +15,16 @@ done and green against `fixture_asv`. So 3 features was enough for everything EX
 more. What remains is below, grouped BY WHAT PROVES IT — the requirement differs per group and they
 must not be merged.
 
+**PREREQUISITE OF THE DATA PHASE — `scripts/verify.py` is OTU-blind, and that makes an ASV run's
+green a lie.** This is not a feature to exercise like the rest; it is a HOLE IN THE NET. `verify.py`
+checks `analysis/pooled/otu_table.tsv`, `otu_matrix.csv` and `databases/otu/*` — all OTU-hardcoded —
+so an ASV run passes through it WITHOUT BEING VERIFIED, and reports green while proving nothing. That
+is the exact class this project has chased the whole way (a checker that cannot see the thing it
+claims to check: `conflict_report.csv`, `table.biom`'s date, the phylo guard) — now sitting in the
+instrument itself. **Make `verify.py` ASV-aware BEFORE trusting any green from an ASV run.** Until
+then, an ASV run's "verify passed" is validation against a blind instrument, worth nothing. This
+gates the whole data phase; it is not scheduled among the groups below, it comes before them.
+
 **GROUP 1 — needs a fixture ASV with ≥4 features.** `fixture_asv` has 3 ASVs; FastTree's floor is
 4 (`MIN_TREE_SEQUENCES`), so the whole phylo/asv branch cannot run against it. Written, resolves
 `asv`, proven for `otu` only.
@@ -40,13 +50,17 @@ the data phase does not mistake them for phylo-class items.
 | site | where | needs |
 |---|---|---|
 | `feature_set_comparison` | `analysis/feature_set_comparison.py`; UI `databases-feature-comparison` | a run with BOTH methods in one output dir (otu AND asv) — neither `fixture` (otu-only) nor `fixture_asv` (asv-only) has both. Needs a dual-method fixture, not a bigger ASV one |
-| `scripts/verify.py` | checks `analysis/pooled/otu_table.tsv`, `otu_matrix.csv`, `databases/otu/*` | asv-aware checks (or a parallel asv pass); an ASV run is currently unverified by verify.py |
 | `_render_dada2_tracking`, `_update_analysis_stats` | `ui/callbacks_analysis.py:237,527` | still store-only (blank on restore) — the deferred-whole rows from the LIVING LIST below; provable with existing `fixture_asv` once their Eixo B restore is wired (session-restore axis, not the ≥4 axis) |
 
-**Consumption order when the data lands.** A ≥4-feature ASV dataset closes Group 1 in one harvest
-(run phylo, freeze `golden/fixture_asv/phylo`, flip the `None` assertion). Group 2 needs no dataset
-at all and could close any time against `fixture_asv`. Group 3 items each need their own distinct
-artifact and should be scheduled separately, not folded into the ≥4 event.
+(`scripts/verify.py` was here too, but it is not a feature to schedule — it is the PREREQUISITE
+above: the verifier itself is OTU-blind, so it gates the data phase rather than sitting in it.)
+
+**Consumption order when the data lands.** FIRST the prerequisite: make `verify.py` ASV-aware, or
+every ASV-run green below is validated against a blind instrument. THEN Group 2 (no dataset needed —
+contract the asv export against the existing `fixture_asv`, the shortest close on the map). A
+≥4-feature ASV dataset closes Group 1 in one harvest (run phylo, freeze `golden/fixture_asv/phylo`,
+flip the `None` assertion). Group 3's remaining items each need their own distinct artifact and
+should be scheduled separately, not folded into the ≥4 event.
 
 ## 2026-07-22 — update_qc_stats restored: the QC KPI cards reconstruct the RIGHT values from the golden qc, a third restore form.
 
