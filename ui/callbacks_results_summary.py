@@ -307,8 +307,12 @@ _EXPORTS = [
     # in the run .zip. The label says "script" rather than "script + tabelas" because
     # the download is the script — promising the tables in a single click would be a lie.
     ("phyloseq (script R, tabelas no .zip)", "databases/otu/phyloseq/load_phyloseq.R", _NO_TAXONOMY),
-    ("Alinhamento", "phylo/otu/aligned.fasta", "a etapa Phylo não correu"),
-    ("Árvore (Newick)", "phylo/otu/tree.nwk", "a etapa Phylo não correu"),
+    # The phylo artifacts sit under their runner's subdir (MAFFT/RAxML), not flat in the
+    # set dir — the previous ``phylo/otu/tree.nwk`` never existed, so a completed tree
+    # always read as "não correu". These paths match the default HYBRID mode the golden
+    # freezes; the support tree is the Newick the viewer surfaces.
+    ("Alinhamento", "phylo/otu/mafft/aligned.fasta", "a etapa Phylo não correu"),
+    ("Árvore (Newick, com suporte)", "phylo/otu/raxml/raxml.raxml.support", "a etapa Phylo não correu"),
 ]
 
 
@@ -552,10 +556,12 @@ def _databases_card(run_dir, state, href, status):
 def _phylo_card(run_dir, state, href, status):
     paths = _metric_paths(state, "phylo")
     value, hint = "—", None
+    from ui.feature_sets import phylo_tree_path
+
     support = _read_csv(paths.get("otu.support_csv") or paths.get("support_csv")) if paths else None
-    tree = run_dir / "phylo" / "otu" / "tree.nwk"
-    if tree.exists():
-        text = tree.read_text(errors="replace")
+    tree = phylo_tree_path(run_dir, "otu")
+    if tree:
+        text = Path(tree).read_text(errors="replace")
         value = f"{text.count(',') + 1} tips"
     if support is not None and not support.empty and "support" in support.columns:
         hint = f"suporte mediano {support['support'].median():.0f}"

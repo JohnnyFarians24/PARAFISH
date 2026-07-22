@@ -114,8 +114,34 @@ STAGES = {
         ],
         "checksum": ["databases/otu/table.biom"],
     },
+    "phylo": {
+        # The last stage into the net. Its trees ARE byte-reproducible: MAFFT and FastTree
+        # are deterministic and RAxML-NG is pinned by seed=42, so two runs produce identical
+        # alignment and trees (measured). What churns — the *.log files (wall-clock, thread
+        # scheduling) and *.rba binary caches (embedded timestamp/version) — is non-content,
+        # the same trap as FastQC's zip banner and table.biom's date, so it is NOT frozen.
+        #
+        # OTU-ONLY, and legitimately so. The fixture_asv set has 3 ASVs and the aligner floor
+        # is 4 tips, so phylo cannot run there — the asv/* paths never exist and freeze()'s
+        # absent-guard skips them, exactly as it does for a source a run did not produce. This
+        # is the ASV-vs-aligner gap named explicitly: the golden pins what the OTU/HYBRID path
+        # exercises and leaves the ASV set and the FAST/ROBUST-only modes UNexercised.
+        #
+        # The tree lives under its runner's subdir (raxml/, fasttree/), never flat in the set
+        # dir — the readers were resolving phylo/<set>/tree.nwk and finding nothing; these are
+        # the real on-disk paths, and the reader now resolves the same ones (ui.feature_sets).
+        "copy": [
+            "phylo/otu/mafft/aligned.fasta",
+            "phylo/otu/mafft/reversed_asvs.csv",
+            "phylo/otu/fasttree/tree.nwk",
+            "phylo/otu/raxml/raxml.raxml.support",
+            "phylo/otu/raxml/raxml.raxml.bestTree",
+            "phylo/otu/raxml/raxml.raxml.bestModel",
+        ],
+        "checksum": [],
+    },
 }
-ORDER = ["qc", "preprocess", "analysis", "taxonomy", "export"]
+ORDER = ["qc", "preprocess", "analysis", "taxonomy", "export", "phylo"]
 
 
 # Artifacts that embed generation metadata which is NOT content. BIOM carries a

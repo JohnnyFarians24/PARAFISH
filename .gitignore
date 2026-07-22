@@ -62,3 +62,9 @@ golden/*
 # fixture_asv/ is the DADA2 counterpart of fixture/ — same reason to commit: it makes the
 # ASV contract travel, so the feature-set-resolved readers can be checked on a clean clone.
 !golden/fixture_asv/
+# The phylo contract freezes a few .fasta files (the MAFFT alignment); the global *.fasta
+# ignore above would drop them, so the contract would not travel and the phylo golden tests
+# would skip on a clean clone. Re-include committed golden fastas explicitly (real stays out —
+# its parent is excluded by golden/* and never negated).
+!golden/fixture/**/*.fasta
+!golden/fixture_asv/**/*.fasta

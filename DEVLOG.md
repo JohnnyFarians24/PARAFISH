@@ -1,5 +1,63 @@
 # DEVLOG
 
+## 2026-07-22 — Phylo into the golden net: the trees ARE byte-reproducible, the freeze is OTU-only by nature, and "árvore não encontrada" was a per-set path the reader never learned.
+
+**Phylo was the last territory without a net, and it entered on the full discipline — witnessed
+failure, fix, freeze, contract test — never freeze first.** The order was kept: the reader
+failure was seen with real artifacts before a line changed, the writer/reader pair was made
+consistent, and only THEN was the golden frozen.
+
+**The gating measurement: phylo trees are byte-reproducible.** Ran `run_phylo` twice on the
+fixture and diffed. MAFFT and FastTree are deterministic and RAxML-NG is pinned by
+`phylo_params.seed=42`, so `aligned.fasta`, `fasttree/tree.nwk`, `raxml.raxml.support`,
+`bestTree`, `bestModel`, `bootstraps` and `startTree` came back byte-identical. The only churn
+is `*.log` (wall-clock, thread scheduling) and `*.rba` (binary alignment cache with an embedded
+timestamp) — non-content, the same trap as FastQC's zip banner and `table.biom`'s `date`, so
+NOT frozen. This is what let the golden freeze the TREES themselves, not merely derived tables.
+
+**The bug the freeze was blocked on: the tree lives under its RUNNER's subdir, never flat in
+the set dir.** The pipeline writer already wrote per-set (`phylo/<set>/`), but the readers
+looked for `phylo/otu/tree.nwk` and `phylo/tree.nwk` — neither of which the writer ever
+produced; the real tree is at `phylo/<set>/raxml/raxml.raxml.support` (or `fasttree/tree.nwk`).
+So a completed tree read as "árvore não encontrada": two mismatches at once, per-set-vs-flat AND
+runner-subdir-vs-flat-in-set. Fix: `ui/feature_sets.py` gained `phylo_dir`/`phylo_tree_path`/
+`phylo_artifact` (the per-set→flat ladder that knows the runner subdirs), and every reader —
+KPIs, tree viewer, mapping, metrics (`callbacks_phylo`), ordination (`callbacks_ordination`),
+Results `_EXPORTS` + `_phylo_card` (`callbacks_results_summary`) — now resolves through them.
+The manual-run button in `callbacks_phylo`, the one writer still writing flat, now writes
+per-set like the pipeline.
+
+**OTU-only, and by structure not oversight.** The freeze is `phylo/otu/` alone because
+`fixture_asv` has 3 ASVs and the aligner floor is 4 tips ("Alinhamento com apenas 3 sequências
+(mínimo: 4)") — the ASV set cannot exercise phylo at all. `freeze()`'s absent-guard skips the
+`asv/*` paths exactly as it skips a source a run did not produce. Frozen for `fixture` (travels
+with the repo) and `real` (local-only, `golden/real` stays gitignored); the pin was proven to
+bite (perturb the support tree → `CONTENT CHANGED`, restore → PASS). `tests/test_phylo_golden.py`
+anchors on the committed golden subtree (clean-clone-safe): the reader resolves the per-set
+support tree, and the old flat paths are asserted absent. Full suite 437 passed / 1 xfailed;
+`golden.py check all` clean on fixture and real, phylo correctly SKIP on `fixture_asv`.
+
+**Closed here. What remains is two small corrections, then product scope — not fixes:**
+- **The phylo guard is a honesty bug, of the family we chased all along.** The UI tells the
+  user two tips suffice (`seq_count < 2`); the aligner refuses below four. A user with three
+  sequences passes the UI guard, starts phylo, and the stage blows up INSIDE with "mínimo 4" —
+  after waiting through QC, preprocess and analysis. That is a false "you may proceed" revealed
+  only downstream, the "server did not respond" pattern exactly. The real number is MEASURED
+  this session (`fixture_asv` at 3 hits the floor of 4), not guessed. Next session: move the
+  guard to 4 with a check that refuses the 3-tip case AT THE DOOR instead of at the aligner.
+- **`phylo/asv/` is written but never exercised.** The per-set branch added this session was
+  proven for `otu` only — no fixture ASV with ≥4 sequences exists to run it. This is the 717
+  lesson pointed at this session's OWN work: a golden proves what it exercises, and this one
+  does not exercise ASV. The `asv` resolver and writer path exist and look right, in the same
+  state the deferred callbacks were in before their anchor — written, plausible, unmeasured.
+  Recorded here with its true nature: **`phylo/asv/` written but unexercised — needs a fixture
+  ASV with ≥4 sequences to prove.** It proves for free the day a larger ASV dataset lands.
+- **`update_qc_stats`** — the last small, unblocked item, still open. With it and the guard
+  closed, the data layer and the UI are essentially complete.
+- Beyond those, product scope, not correction: the ASV living-list awaiting a real ASV dataset,
+  validation on varied data, the push once the supervisors sign off, and the Applications Note
+  benchmark.
+
 ## 2026-07-21 — The per-feature taxonomy summary: a NEW deliverable, single-sourced, and a cross-metric bug caught in the building.
 
 **One row per feature, both evidence families side by side, no blended score.**

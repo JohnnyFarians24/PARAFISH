@@ -142,14 +142,11 @@ def compute(run_config_data, project_data, samples_data, metric, prevalence, exc
 
     tree_path = None
     if metric in NEEDS_TREE:
-        for candidate in (
-            run_dir / "phylo" / feature_set / "tree.nwk",
-            run_dir / "phylo" / feature_set / "raxml.raxml.bestTree",
-            run_dir / "phylo" / "tree.nwk",
-        ):
-            if candidate.exists():
-                tree_path = candidate
-                break
+        from ui.feature_sets import phylo_tree_path
+
+        resolved = phylo_tree_path(run_dir, feature_set)
+        if resolved:
+            tree_path = Path(resolved)
 
     try:
         result = ordinate(

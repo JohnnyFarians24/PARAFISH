@@ -35,8 +35,15 @@ def _phylo_metric_paths(phylo_data, run_config_data) -> dict[str, str]:
     if not output_dir:
         return {}
     from phylo.phylo_metrics import phylo_metrics_paths
+    from ui.feature_sets import phylo_dir
 
-    return {key: str(path) for key, path in phylo_metrics_paths(Path(output_dir) / "phylo").items()}
+    # The metrics live under phylo/<set>/; fall back to the flat layout for older runs.
+    for feature_set in ("otu", "asv"):
+        base = phylo_dir(output_dir, feature_set)
+        resolved = {key: str(path) for key, path in phylo_metrics_paths(base).items()}
+        if resolved:
+            return resolved
+    return {}
 
 
 def _mapping_csv(files: dict, run_config_data) -> str | None:
@@ -46,9 +53,12 @@ def _mapping_csv(files: dict, run_config_data) -> str | None:
         return str(value)
     output_dir = (run_config_data or {}).get("output_dir")
     if output_dir:
-        candidate = Path(output_dir) / "phylo" / "mafft" / "reversed_asvs.csv"
-        if candidate.exists():
-            return str(candidate)
+        from ui.feature_sets import phylo_artifact
+
+        for feature_set in ("otu", "asv"):
+            candidate = phylo_artifact(output_dir, feature_set, "reversed_asvs_csv")
+            if candidate:
+                return candidate
     return None
 
 
@@ -236,14 +246,20 @@ def register_callbacks(app: Any) -> None:
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
-        phylo_result = run_phylo_step(fasta_path, run_config, run_config.output_dir / "phylo")
+        # Write per feature set, exactly as the pipeline does — a flat phylo/ dir made
+        # the per-set readers (tree viewer, KPIs, Results) look one directory too high.
+        from ui.feature_sets import resolve_feature_set
+
+        feature_set = resolve_feature_set(None, analysis_record.get("outputs") or {}, run_config.output_dir)
+        phylo_base = run_config.output_dir / "phylo" / feature_set
+        phylo_result = run_phylo_step(fasta_path, run_config, phylo_base)
         phylo_files = {key: str(value) for key, value in phylo_result.files.items()}
         log_lines = [{"ts": utc_now_iso(), "level": "OK" if phylo_result.success else "ERR", "msg": phylo_result.error_message or "Phylo pipeline completed"}]
         try:
             from ui.callbacks_results import _find_abundance_matrix
 
             metrics_files = build_metrics_from_files(
-                run_config.output_dir / "phylo",
+                phylo_base,
                 phylo_files,
                 _find_abundance_matrix(analysis_record.get("outputs") or {}, run_config.output_dir),
             )
@@ -328,10 +344,14 @@ def register_callbacks(app: Any) -> None:
         from phylo.phylo_metrics import support_tree_path
         from ui.plots import annotated_tree_figure
 
+        from ui.feature_sets import phylo_dir, resolve_feature_set
+
         files = _phylo_files(phylo_data)
         output_dir = (run_config_data or {}).get("output_dir")
-        # Colour nodes by support, so read the tree that actually carries it.
-        tree_path = support_tree_path(files, Path(output_dir) / "phylo" if output_dir else None)
+        # Colour nodes by support, so read the tree that actually carries it — from the
+        # per-set phylo dir, since the on-disk support file lives under phylo/<set>/raxml/.
+        feature_set = resolve_feature_set(None, _normalize_store(analysis_data).get("outputs") or {}, output_dir)
+        tree_path = support_tree_path(files, phylo_dir(output_dir, feature_set) if output_dir else None)
         if tree_path is None:
             return html.Div("Run the phylo stage to see the tree.", className="empty-state-sub")
 
@@ -526,11 +546,12 @@ def register_phylo_kpis(app) -> None:
             blank = card("—", "Phylo", hint="a etapa não correu")
             return blank, blank, blank
 
+        from ui.feature_sets import phylo_tree_path
+
         tips = "—"
-        for candidate in (run_dir / "phylo" / "otu" / "tree.nwk", run_dir / "phylo" / "tree.nwk"):
-            if candidate.exists():
-                tips = candidate.read_text(errors="replace").count(",") + 1
-                break
+        tree = phylo_tree_path(run_dir, "otu")
+        if tree:
+            tips = Path(tree).read_text(errors="replace").count(",") + 1
 
         metrics = {k: v for k, v in (record.get("metrics_files") or {}).items() if isinstance(v, str) and Path(v).exists()}
 

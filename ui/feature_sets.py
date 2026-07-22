@@ -78,3 +78,62 @@ def taxonomy_file(db_outputs: Optional[dict], run_output_dir, feature_set: str, 
         if candidate.exists():
             return str(candidate)
     return None
+
+
+# Within a phylo/<set>/ directory each artifact lives under its RUNNER's subdir — the
+# tree is never at ``phylo/<set>/tree.nwk``. Readers that guessed that flat name found
+# nothing after a real run (the pipeline writes ``phylo/<set>/raxml/…``), so the tree,
+# the alignment QC and the tip mapping silently blanked. Resolve through the same
+# per-set-then-flat ladder the taxonomy files use.
+_PHYLO_TREE_CANDIDATES = (
+    "raxml/raxml.raxml.support",   # bootstrap support — the viewer colours by this
+    "raxml/raxml.raxml.bestTree",  # ML tree, support stripped
+    "fasttree/tree.nwk",           # FAST mode, or the HYBRID seed before RAxML
+)
+_PHYLO_ARTIFACTS = {
+    "aligned_fasta": "mafft/aligned.fasta",
+    "reversed_asvs_csv": "mafft/reversed_asvs.csv",
+}
+
+
+def phylo_dir(run_output_dir, feature_set: str) -> Optional[Path]:
+    """The phylo directory for a feature set: the per-set layout if present, else flat.
+
+    Returns the base ``phylo/`` when the per-set dir is absent so runs that predate
+    feature sets (``phylo/raxml/…``) still resolve.
+    """
+    if not run_output_dir:
+        return None
+    base = Path(run_output_dir) / "phylo"
+    per_set = base / feature_set
+    return per_set if per_set.exists() else base
+
+
+def phylo_tree_path(run_output_dir, feature_set: str) -> Optional[str]:
+    """Best available tree for a feature set: bootstrap support, else ML, else FastTree.
+
+    Walks the per-feature-set layout first, then the flat pre-feature-set one, and knows
+    the runner subdir each tree sits in — so it returns a path that actually exists.
+    """
+    if not run_output_dir:
+        return None
+    base = Path(run_output_dir) / "phylo"
+    for root in (base / feature_set, base):
+        for rel in _PHYLO_TREE_CANDIDATES:
+            candidate = root / rel
+            if candidate.exists():
+                return str(candidate)
+    return None
+
+
+def phylo_artifact(run_output_dir, feature_set: str, name: str) -> Optional[str]:
+    """Path to a named phylo artifact (``aligned_fasta``, ``reversed_asvs_csv``), per-set then flat."""
+    rel = _PHYLO_ARTIFACTS.get(name)
+    if not rel or not run_output_dir:
+        return None
+    base = Path(run_output_dir) / "phylo"
+    for root in (base / feature_set, base):
+        candidate = root / rel
+        if candidate.exists():
+            return str(candidate)
+    return None
