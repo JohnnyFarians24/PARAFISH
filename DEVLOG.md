@@ -1,5 +1,46 @@
 # DEVLOG
 
+## 2026-07-22 — verify.py made ASV-aware: the blind instrument now sees an ASV run, and the blindness was seen over a real defect first.
+
+**The prerequisite of the data phase, closed.** verify.py's seven checks all read `databases/otu/`
+and `analysis/pooled/otu_table.tsv`, so on an ASV run every one SKIPped and the run exited 0 — a
+blind instrument goes quiet, it does not scream, so an ASV run's "verify passed" validated nothing.
+Measured on `runs/_fixture_asv/current`: 0 passed · 0 failed · **7 skipped · exit 0**. That is the
+"green pretending to prove" one layer up, in the tool that judges the pipeline.
+
+**Mapped the six before touching any (the checks fragment, they are not uniformly blind).** (a) read
+totals, (c) class table, (d) banned ranks, (e) source_status, (f) Linnean backbone — all
+OTU-hardcoded but fully ASV-able (`databases/asv/*` and the DADA2 abundance table exist). (b)
+id_map — ASV-able too: DADA2 writes `analysis/dada2/asv_id_map.csv` with an `asv_id,size` shape. Each
+now takes a `feature_set` and resolves the set's own paths through small helpers
+(`_abundance_table`, `_id_map`, `_db_dir`); `main()` runs them PER SET actually present
+(`_present_sets`), labelling each `(d/asv)` etc. Two seams stay OTU-only ON PURPOSE: the chimera leg
+of (a) — DADA2 removes chimeras internally, there is no ASV chimera_stats — and check (g), the
+Results-reader probe, which is chimera-based (`clustered_read_total`) and resolves its own paths.
+
+**The fail-first trap, and it is subtle — honoured.** A blind verifier does not error on an ASV
+defect, it stays silent, so "seen to fail" here is NOT "verify errors" — it is: plant a real defect
+in an ASV run and prove the OTU-blind verifier does not catch it, then that the ASV-aware one does.
+Planted an invented Linnean rank (Craniata as a Class) into a scratch `databases/asv/
+taxonomy_consensus.csv`. The OLD verify (git HEAD): `(d)` SKIP, 0 failed, **exit 0 — the defect
+uncaught**. The NEW verify: `(d/asv)` FAIL, **exit 1 — caught**. The instrument that verifies the
+instrument, itself seen to fail before being trusted. Locked in `tests/test_verify_asv.py`.
+
+**A real finding surfaced the moment the blindness lifted: `(f/asv)` FAILs on `fixture_asv`.** Not a
+verify bug — a truth. `fixture_asv` is SILVA+PR2-only (NCBI was excluded for determinism, its remote
+being non-reproducible), and SILVA/PR2 backbones are not Linnean, so Phylum..Family are genuinely
+empty and (f) — "a run whose only Linnean source is absent is coherent and useless" — correctly
+fires. In a PRODUCTION ASV run with a Linnean source (the COI+BOLD demo had BOLD) it would pass.
+**Decision left to the domain owner, not silently coded:** whether (f) should distinguish a Linnean
+source that was never SELECTED (a config choice, `skipped`/`not_applicable` in source_status) from
+one that ran and DIED — the way (e) already distinguishes them. (f) is deliberately cause-agnostic
+today; softening it is a real semantic change and yours to make, so it is flagged, not made.
+
+`verify.py runs/_fixture_asv/current` now exits 1 for that true reason (the tool is manual, in no
+CI gate, so nothing automated regresses). OTU unchanged: `runs/_fixture/current` still 7 passed ·
+exit 0. Full suite 448 passed; `golden check all` clean on all three (verify.py is not part of the
+golden). This closes the last no-data item — the ruler is sharpened before the data phase begins.
+
 ## 2026-07-22 — Group 2 closed: the ASV export is contracted against the existing fixture_asv, no new data.
 
 **The map's shortest close, done: `export/asv` now travels proven.** The databases stage was already
@@ -39,8 +80,11 @@ done and green against `fixture_asv`. So 3 features was enough for everything EX
 more. What remains is below, grouped BY WHAT PROVES IT — the requirement differs per group and they
 must not be merged.
 
-**PREREQUISITE OF THE DATA PHASE — `scripts/verify.py` is OTU-blind, and that makes an ASV run's
-green a lie.** This is not a feature to exercise like the rest; it is a HOLE IN THE NET. `verify.py`
+**PREREQUISITE OF THE DATA PHASE — ✅ CLOSED (2026-07-22, see entry above): `verify.py` is now
+ASV-aware.** The six checks run per feature set present, an ASV defect is caught (proven over a
+planted banned rank), and the fix surfaced a real finding — `(f/asv)` fails on the SILVA+PR2-only
+`fixture_asv` for lack of a Linnean backbone, a decision-point flagged for the domain owner. Kept
+below as the record of why it gated the phase. **The blindness it describes was real:** `verify.py`
 checks `analysis/pooled/otu_table.tsv`, `otu_matrix.csv` and `databases/otu/*` — all OTU-hardcoded —
 so an ASV run passes through it WITHOUT BEING VERIFIED, and reports green while proving nothing. That
 is the exact class this project has chased the whole way (a checker that cannot see the thing it
