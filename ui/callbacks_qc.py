@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from dash import Input, Output, State, dash_table, dcc, html, no_update
 from dash.exceptions import PreventUpdate
@@ -71,6 +71,62 @@ def _qc_metric_paths(qc_data, run_config_data, project_data=None) -> dict[str, s
         return {key: str(path) for key, path in build_qc_metrics(qc_dir).items()}
     except Exception:
         return {}
+
+
+def _format_qc_stats(total: int, passed: int, reads: list, gc: list) -> dict:
+    """The four KPI display values from raw per-sample numbers — one formatting, both paths."""
+    return {
+        "total": total,
+        "pass_pct": f"{(100 * passed) // total}%" if total else "—",
+        "mean_reads": f"{int(sum(reads) / len(reads)):,}" if reads else "—",
+        "mean_gc": f"{(sum(gc) / len(gc)):.0f}%" if gc else "—",
+        "all_pass": bool(total) and passed == total,
+    }
+
+
+def _qc_stats(qc_data, run_config_data, project_data=None) -> Optional[dict]:
+    """The four QC KPI values, ``{"err": True}`` on a failed stage, or ``None`` for em-dashes.
+
+    The populated store is read first. On a restored session the store is empty even though the
+    run is on disk, so the same numbers are reconstructed SEMANTICALLY from ``qc_overview.csv``
+    (a third restore form — the store's shape is not on disk, but its numbers are). Every sample
+    present in the overview is one FastQC succeeded on, so the run pass rate is total/total.
+    """
+    record = _normalize_store(qc_data)
+    status = str(record.get("status") or "pending")
+    if status in {"failure", "blocked"}:
+        return {"err": True}
+
+    outputs = _normalize_store(record.get("outputs"))
+    if outputs:
+        total = len(outputs)
+        passed = sum(1 for output in outputs.values() if output.get("success"))
+        reads = [output.get("metrics", {}).get("total_sequences_r1", 0) for output in outputs.values()]
+        gc = [output.get("metrics", {}).get("pct_gc_r1", 0) for output in outputs.values()]
+        return _format_qc_stats(total, passed, reads, gc)
+
+    return _qc_stats_from_overview(_qc_metric_paths(qc_data, run_config_data, project_data).get("qc_overview_csv"))
+
+
+def _qc_stats_from_overview(overview_csv) -> Optional[dict]:
+    """Reconstruct the four KPI values from ``qc_overview.csv``, or ``None`` if unreadable."""
+    if not overview_csv or not Path(overview_csv).exists():
+        return None
+    import pandas as pd
+
+    try:
+        frame = pd.read_csv(overview_csv)
+    except Exception:
+        return None
+    r1 = frame[frame["read"].astype(str).str.upper() == "R1"] if "read" in frame.columns else frame
+    if r1.empty:
+        return None
+    total = int(r1["sample"].nunique()) if "sample" in r1.columns else len(r1)
+    reads = r1["total_reads"].dropna().tolist() if "total_reads" in r1.columns else []
+    gc = r1["pct_gc"].dropna().tolist() if "pct_gc" in r1.columns else []
+    # A sample only reaches qc_overview if FastQC produced parseable output for it, so the run
+    # pass rate the store would show for these samples is total/total.
+    return _format_qc_stats(total, total, reads, gc)
 
 
 _MODULE_STATUS_SYMBOL = {"pass": "●", "warn": "▲", "fail": "✕"}
@@ -181,44 +237,34 @@ def register_callbacks(app: Any) -> None:
         Output("qc-stat-reads", "children"),
         Output("qc-stat-gc", "children"),
         Input("store-qc-outputs", "data"),
+        State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def update_qc_stats(qc_data):
+    def update_qc_stats(qc_data, run_config_data, project_data):
         def _card(value, label, color=None):
             style = {"color": color} if color else {}
             return [html.Div(str(value), className="stat-value", style=style), html.Div(label, className="stat-label")]
-        qc_data = _normalize_store(qc_data)
 
-        status = str(qc_data.get("status") or "pending")
-        outputs = _normalize_store(qc_data.get("outputs"))
-        if status in {"failure", "blocked"}:
-            return (
-                _card("ERR", "Total samples", color="var(--red)"),
-                _card("ERR", "Pass rate", color="var(--red)"),
-                _card("ERR", "Mean reads", color="var(--red)"),
-                _card("ERR", "Mean GC", color="var(--red)"),
-            )
-
-        if not qc_data:
+        stats = _qc_stats(qc_data, run_config_data, project_data)
+        if stats is None:
             return (
                 _card("—", "Total samples"),
                 _card("—", "Pass rate"),
                 _card("—", "Mean reads"),
                 _card("—", "Mean GC"),
             )
-
-        total = len(outputs)
-        passed = sum(1 for output in outputs.values() if output.get("success"))
-        pass_pct = f"{(100 * passed) // total}%" if total else "—"
-        all_reads = [output.get("metrics", {}).get("total_sequences_r1", 0) for output in outputs.values()]
-        mean_reads = f"{int(sum(all_reads) / len(all_reads)):,}" if all_reads else "—"
-        all_gc = [output.get("metrics", {}).get("pct_gc_r1", 0) for output in outputs.values()]
-        mean_gc = f"{(sum(all_gc) / len(all_gc)):.0f}%" if all_gc else "—"
-
+        if stats.get("err"):
+            return (
+                _card("ERR", "Total samples", color="var(--red)"),
+                _card("ERR", "Pass rate", color="var(--red)"),
+                _card("ERR", "Mean reads", color="var(--red)"),
+                _card("ERR", "Mean GC", color="var(--red)"),
+            )
         return (
-            _card(total, "Total samples"),
-            _card(pass_pct, "Pass rate", color="var(--green)" if passed == total else "var(--amber)"),
-            _card(mean_reads, "Mean reads"),
-            _card(mean_gc, "Mean GC"),
+            _card(stats["total"], "Total samples"),
+            _card(stats["pass_pct"], "Pass rate", color="var(--green)" if stats["all_pass"] else "var(--amber)"),
+            _card(stats["mean_reads"], "Mean reads"),
+            _card(stats["mean_gc"], "Mean GC"),
         )
 
     @app.callback(

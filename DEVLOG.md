@@ -1,5 +1,30 @@
 # DEVLOG
 
+## 2026-07-22 — update_qc_stats restored: the QC KPI cards reconstruct the RIGHT values from the golden qc, a third restore form.
+
+**The last store-only callback, left out by shape not by axis, now closes the session-restore
+gap.** `update_qc_stats` computed its four cards — Total samples, Pass rate, Mean reads, Mean GC —
+straight from `store-qc-outputs`. On a reloaded session that store is empty even though the run is
+on disk, so the cards blanked to "—" while every sibling QC callback (`_render_qc_plots`,
+`_render_qc_sample_table`) already reconstructed from disk through `_qc_metric_paths`. Measured,
+the scope was exactly this one callback — no duplicate re-claims these outputs, so it alone blanked.
+
+**A third restore form: semantic, not path.** The two axes restore the store's SHAPE (Axis A) or
+resolve an output path (Axis B). Here neither fits: the store's per-sample dict is not on disk, but
+its NUMBERS are — `qc_overview.csv` carries `total_reads` and `pct_gc` per sample, and a sample only
+reaches that table if FastQC produced parseable output for it, so the run pass rate the store would
+show is total/total. `_qc_stats` reads the populated store first and, when it is empty, reconstructs
+the same four values from the overview via the existing `_qc_metric_paths` (with its `latest_run_dir`
+fallback). One `_format_qc_stats` formats both paths, so store and restore cannot diverge.
+
+**Strong-form check, because QC is the fifth golden layer.** `tests/test_qc_stats_restore.py`
+reconstructs a run dir from the COMMITTED `golden/fixture/qc` and asserts the restored cards are the
+RIGHT values — 2 samples, 100% pass, 5,000 mean reads, 54% mean GC — not merely "not blank"; and that
+the restore path reproduces the store path for the same run. Seen to fail first for the documented
+reason (reconstruction disabled → "restored session blanked instead of reconstructing from disk"),
+green after. Full suite 445 passed; the callback smoke test confirms the new 3-arg signature fires;
+`golden.py check all` clean on fixture/real/fixture_asv.
+
 ## 2026-07-22 — The phylo input floor, unified at 4: the honesty bug the phylo session flagged, now closed at its source.
 
 **The UI guard said two sequences were enough for a tree; the aligner said four.** FastTree —
