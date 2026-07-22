@@ -29,6 +29,7 @@ from databases.pr2_db import PR2Config
 from databases.reference_filter import marker_filter_applies, resolve_marker
 from databases.silva_db import SILVAConfig
 from databases.taxonomy_runner import run_taxonomy_pipeline
+from phylo import phylo_input_error
 from phylo.phylo_metrics import build_metrics_from_files
 from phylo.phylo_runner import run_phylo as run_phylo_step
 from preprocess.cutadapt_runner import resolve_primers, run_cutadapt
@@ -852,8 +853,9 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     seq_count = sum(1 for _ in SeqIO.parse(str(phylo_path), "fasta"))
                 except Exception:
                     seq_count = 0
-                if seq_count < 2:
-                    entry = _log_entry(utc_now_iso(), "ERR", f"Phylo {key}: FASTA tem {seq_count} sequências (mínimo 2)")
+                guard_error = phylo_input_error(seq_count)
+                if guard_error:
+                    entry = _log_entry(utc_now_iso(), "ERR", f"Phylo {key}: {guard_error}")
                     logs.append(entry)
                     append_log(progress_path, entry)
                     continue

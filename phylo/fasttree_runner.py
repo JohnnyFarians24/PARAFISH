@@ -9,6 +9,7 @@ from typing import Dict
 from core.config import FASTTREE_PATH
 from core.models import StepOutput
 from core.validation import validate_fasta_headers
+from phylo import MIN_TREE_SEQUENCES
 
 
 def run_fasttree(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOutput:
@@ -26,12 +27,12 @@ def run_fasttree(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOut
         1 for line in aligned_fasta.read_text(encoding="utf-8", errors="replace").splitlines()
         if line.startswith(">")
     )
-    if sequence_count < 4:
+    if sequence_count < MIN_TREE_SEQUENCES:
         return StepOutput(
             step_name="fasttree",
             success=False,
             files={},
-            error_message=f"Alinhamento com apenas {sequence_count} sequências (mínimo: 4).",
+            error_message=f"Alinhamento com apenas {sequence_count} sequências (mínimo: {MIN_TREE_SEQUENCES}).",
         )
 
     tree_nwk = output_dir / "tree.nwk"

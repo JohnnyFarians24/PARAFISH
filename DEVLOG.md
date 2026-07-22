@@ -1,5 +1,29 @@
 # DEVLOG
 
+## 2026-07-22 — The phylo input floor, unified at 4: the honesty bug the phylo session flagged, now closed at its source.
+
+**The UI guard said two sequences were enough for a tree; the aligner said four.** FastTree —
+which the default HYBRID and FAST modes both route through — refuses below four tips (an unrooted
+tree needs four to be non-trivial). The UI guard was `seq_count < 2`, so a 3-tip run PASSED the
+guard, ran QC + preprocess + analysis, and only failed downstream inside phylo with "mínimo: 4":
+a false "you may proceed" of the "server did not respond" family, revealed only at the end. The
+floor of 4 was measured, not guessed — `fixture_asv` has 3 ASVs and hits it (which is also why the
+phylo golden is OTU-only).
+
+**Fixed at the source of the divergence: one floor, not two numbers written independently.**
+`MIN_TREE_SEQUENCES = 4` now lives once in `phylo/__init__.py`; the tree runner
+(`fasttree_runner`) and BOTH UI guards — the manual button (`callbacks_phylo`) and the pipeline
+(`callbacks_progress`) — read it through a shared `phylo_input_error()` helper, so the number the
+user is refused at cannot drift from the number the aligner enforces. The guard message names the
+real floor (4).
+
+**Check seen to fail first, for the documented reason.** `tests/test_phylo_input_guard.py` pins
+that a 3-tip input is refused AT THE ENTRANCE naming 4, that a sufficient input passes, and that
+the guard floor EQUALS the aligner floor — all red on the old code (guard 2 vs aligner 4, and no
+shared source), green after. A wiring check fails if either guard site re-hardcodes its own
+number. Full suite 442 passed; `golden.py check all` clean on fixture/real/fixture_asv (the frozen
+layers untouched — the guard only refuses inputs the aligner would have refused anyway).
+
 ## 2026-07-22 — Phylo into the golden net: the trees ARE byte-reproducible, the freeze is OTU-only by nature, and "árvore não encontrada" was a per-set path the reader never learned.
 
 **Phylo was the last territory without a net, and it entered on the full discipline — witnessed

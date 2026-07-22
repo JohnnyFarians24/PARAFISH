@@ -9,6 +9,7 @@ from Bio import SeqIO
 from dash import Input, Output, State, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
+from phylo import phylo_input_error
 from phylo.phylo_metrics import build_metrics_from_files
 from phylo.phylo_runner import run_phylo as run_phylo_step
 from ui.pipeline_state import _normalize_store, get_stage_record, stage_ready, stage_status, utc_now_iso
@@ -235,14 +236,15 @@ def register_callbacks(app: Any) -> None:
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
-        if seq_count < 2:
+        guard_error = phylo_input_error(seq_count)
+        if guard_error:
             record = {
                 "signature": signature,
                 "status": "failure",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"FASTA tem {seq_count} sequências; mínimo 2 para phylo"}],
-                "error_message": f"FASTA tem {seq_count} sequências; mínimo 2 para phylo",
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": guard_error}],
+                "error_message": guard_error,
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
