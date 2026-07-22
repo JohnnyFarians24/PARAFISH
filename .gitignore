@@ -68,3 +68,10 @@ golden/*
 # its parent is excluded by golden/* and never negated).
 !golden/fixture/**/*.fasta
 !golden/fixture_asv/**/*.fasta
+
+# Raw reads are never committed (the 18S set lives under the ignored fixtures/; runs/ is
+# ignored too). The COI reads arrived loose in the repo root — ignore them by pattern so a
+# stray `git add .` cannot put ~70 MB of FASTQ, or WSL's Zone.Identifier cruft, into history.
+*.fastq.gz
+*.fastq
+*:Zone.Identifier
