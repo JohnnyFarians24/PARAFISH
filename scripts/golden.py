@@ -104,6 +104,13 @@ STAGES = {
         "checksum": [],
     },
     "export": {
+        # Feature-set-adaptive by the same absent-guard as analysis/taxonomy: the databases
+        # stage writes the export per set, so an OTU run freezes the otu/* paths (asv absent)
+        # and an ASV run the asv/* paths (otu absent) — one spec, either method. The asv export
+        # was produced by fixture_asv all along but travelled UNcontracted until now; 3 features
+        # are enough (export is a deterministic transform of the frozen taxonomy, no aligner
+        # floor), so it freezes against the existing fixture_asv. table.biom is checksummed, not
+        # copied, on both sides — its wall-clock ``date`` is non-content (see _VOLATILE_JSON_FIELDS).
         "copy": [
             "databases/otu/phyloseq/tax_table.tsv",
             "databases/otu/phyloseq/otu_table.tsv",
@@ -111,8 +118,14 @@ STAGES = {
             "databases/otu/taxa_tables/taxa_table_class.csv",
             "databases/otu/taxa_tables/taxa_table_genus.csv",
             "databases/otu/taxa_tables/taxa_table_species.csv",
+            "databases/asv/phyloseq/tax_table.tsv",
+            "databases/asv/phyloseq/otu_table.tsv",
+            "databases/asv/phyloseq/sample_data.tsv",
+            "databases/asv/taxa_tables/taxa_table_class.csv",
+            "databases/asv/taxa_tables/taxa_table_genus.csv",
+            "databases/asv/taxa_tables/taxa_table_species.csv",
         ],
-        "checksum": ["databases/otu/table.biom"],
+        "checksum": ["databases/otu/table.biom", "databases/asv/table.biom"],
     },
     "phylo": {
         # The last stage into the net. Its trees ARE byte-reproducible: MAFFT and FastTree

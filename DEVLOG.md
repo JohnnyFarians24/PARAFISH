@@ -1,5 +1,29 @@
 # DEVLOG
 
+## 2026-07-22 — Group 2 closed: the ASV export is contracted against the existing fixture_asv, no new data.
+
+**The map's shortest close, done: `export/asv` now travels proven.** The databases stage was already
+writing `databases/asv/{phyloseq,taxa_tables,table.biom}`, but `golden.py`'s export stage froze only
+the `otu` paths, so the asv export shipped uncontracted — a change to it would have gone uncaught.
+Added the six asv paths (mirroring otu) plus `databases/asv/table.biom` to the export spec, which is
+now feature-set-adaptive by the same absent-guard as analysis/taxonomy: an OTU run freezes otu/*
+(asv absent), an ASV run asv/* (otu absent). No aligner floor here — export is a deterministic
+transform of the frozen taxonomy — so 3 features sufficed and it froze against the EXISTING
+`fixture_asv`, no new dataset.
+
+**Check seen to fail first, then the pin proven to bite.** Before: `check export --dataset
+fixture_asv` SKIPped — no export layer, the asv export unprotected. After freeze: PASS. Perturbing
+`golden/fixture_asv/export/.../taxa_table_genus.csv` makes `check` FAIL (`CONTENT CHANGED`, the asv
+path named), restoring makes it pass — so the newly-added asv paths are really checked, where nothing
+checked them before. Adding asv to the spec did NOT regress otu: `check all` PASS on fixture, real
+and fixture_asv (the absent-guard skips asv paths on an otu run). Full suite 445 passed (golden data
+only, no code change).
+
+**Self-feeding order holds.** This contracts what `verify.py` ASV-aware will verify next: with the
+asv export now frozen, the ASV-aware verifier (the data-phase PREREQUISITE) has a real export layer
+to check. Group 2 first (contract), verify.py after (verify) — the second has its object because the
+first froze it.
+
 ## 2026-07-22 — MAP (audit, no fixes): the ASV branches written but proven only for OTU, grouped by what proves each.
 
 **What this is.** Task 3: an inventory, not a correction. Nothing is fixed here — fixing a branch
@@ -35,14 +59,13 @@ gates the whole data phase; it is not scheduled among the groups below, it comes
 | phylo readers (per-set→flat) | `ui/feature_sets.py` `phylo_dir` / `phylo_tree_path` / `phylo_artifact` | `tests/test_phylo_golden.py` asserts `phylo_tree_path(..,"asv")` is **None** (no asv tree exists) | same ≥4 set → the None assertion flips to a real tree; extend the test with an asv reconstruction |
 | phylo UI/results readers | `callbacks_phylo._phylo_kpis`/`_render_annotated_tree`/`_mapping_csv`/`_phylo_metric_paths`; `callbacks_ordination` (~145); `callbacks_results_summary._phylo_card` + `_EXPORTS` phylo rows | all hardcode/resolve `otu`; no asv phylo artifact to render | ≥4 asv phylo output on disk → the same resolvers exercised for `asv` |
 
-**GROUP 2 — provable with the EXISTING `fixture_asv` (3 features); NO new data, only a contract +
-check.** The databases stage already WRITES the asv export — `runs/_fixture_asv/current/databases/asv/`
-carries `phyloseq/*`, `taxa_tables/*` and `table.biom` — but `golden.py`'s export stage freezes only
-the `otu` paths, so the asv export travels unproven.
+**GROUP 2 — ✅ CLOSED (2026-07-22, see entry above).** The asv export is now contracted in
+`golden.py` and frozen against `fixture_asv`; `check all` PASS on all three datasets, the pin proven
+to bite on an asv path. Left here for the record of what it was.
 
-| site | where | gap | what proves it |
+| site | where | gap | what proved it |
 |---|---|---|---|
-| export/asv | `databases/asv/{phyloseq,taxa_tables,table.biom}` (produced), `scripts/golden.py` export stage = otu-only | no golden contract, no test | add the asv paths to the export spec + `freeze export --dataset fixture_asv` (3 features suffice; biom `date` already handled by the volatile-field guard) |
+| ~~export/asv~~ ✅ | `databases/asv/{phyloseq,taxa_tables,table.biom}` | was: otu-only export spec, no contract | added the six asv paths + `databases/asv/table.biom` checksum; froze `golden/fixture_asv/export` (3 features sufficed; biom `date` handled by the volatile-field guard) |
 
 **GROUP 3 — related asv gaps with a DIFFERENT requirement — do NOT bundle under "≥4".** Listed so
 the data phase does not mistake them for phylo-class items.
