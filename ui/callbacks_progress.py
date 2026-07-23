@@ -979,20 +979,34 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
             pass
 
 
-def _launch_pipeline_run(run_config, run_config_data) -> bool:
-    """Starts the background pipeline thread for run_config, unless a thread for
-    the same run_id is already running.
+def _any_pipeline_running() -> bool:
+    """True iff a pipeline thread is genuinely alive in THIS process.
 
-    Shared between the Setup page's "Run Pipeline" action and the Progress page's
-    manual "Start Pipeline" retry button, so both go through the same single guard
-    against launching two concurrent threads against the same output directory.
+    The single source of truth for "is a run happening" — the live thread, never
+    progress.json. An OOM-killed run leaves ``stages: running`` (and no ``done``) on
+    disk forever; a disk-based check would then refuse every future run and disable
+    the Start button permanently. The process alone knows what is really executing.
+    """
+    with _progress_lock:
+        return any(thread.is_alive() for thread in _pipeline_threads.values())
+
+
+def _launch_pipeline_run(run_config, run_config_data) -> bool:
+    """Starts the background pipeline thread for run_config, unless a run is already
+    live in this process.
+
+    The sole launcher, wired only to the Progress page's explicit "Start Pipeline"
+    button. The guard is atomic (check-and-start under the lock) so a fast double
+    click or a second browser tab cannot slip a second thread past it, and it refuses
+    ANY concurrent run — not just the same run_id — because on this box two pipelines
+    at once is a guaranteed OOM. It keys on the live thread, never on progress.json,
+    so a stale "running" left by an OS-killed run does not block a fresh launch.
 
     Returns True if a new thread was started, False if one was already running.
     """
     progress_path = run_config.output_dir / "progress.json"
     with _progress_lock:
-        existing = _pipeline_threads.get(run_config.run_id)
-        if existing is not None and existing.is_alive():
+        if any(thread.is_alive() for thread in _pipeline_threads.values()):
             return False
         thread = threading.Thread(
             target=_run_pipeline_thread,
@@ -1008,6 +1022,7 @@ def register_callbacks(app: Any) -> None:
     @app.callback(
         Output("progress-interval", "disabled", allow_duplicate=True),
         Output("progress-overall-status", "children", allow_duplicate=True),
+        Output("btn-start-progress", "disabled", allow_duplicate=True),
         Input("btn-start-progress", "n_clicks"),
         State("store-project", "data"),
         State("store-samples", "data"),
@@ -1020,13 +1035,16 @@ def register_callbacks(app: Any) -> None:
         run_config = run_config_from_store(project_data, samples_data, run_config_data)
         run_config.samples = _selected_samples(run_config.samples)
         started = _launch_pipeline_run(run_config, run_config_data)
-        return False, "Running..." if started else "Already running..."
+        # Disable the button the instant a run is live, so a second click or tab cannot
+        # even attempt a launch; the backend guard is the real lock, this is the UI half.
+        return False, "Running..." if started else "Already running...", _any_pipeline_running()
 
     @app.callback(
         Output("progress-stage-rows", "children"),
         Output("progress-logs", "children"),
         Output("progress-overall-status", "children", allow_duplicate=True),
         Output("progress-interval", "disabled", allow_duplicate=True),
+        Output("btn-start-progress", "disabled", allow_duplicate=True),
         Output("store-qc-outputs", "data", allow_duplicate=True),
         Output("store-preprocess-outputs", "data", allow_duplicate=True),
         Output("store-analysis-outputs", "data", allow_duplicate=True),
@@ -1099,14 +1117,21 @@ def register_callbacks(app: Any) -> None:
         def _first_change(record, current):
             return record if record != current else no_update
 
+        # The Start button follows the LIVE THREAD, not this disk snapshot: it stays
+        # disabled while a run is genuinely executing and re-enables the moment the
+        # thread ends — including an OOM kill, which never writes `done` and would
+        # otherwise leave the button dead forever if it keyed on progress.json.
+        start_disabled = _any_pipeline_running()
+
         if not done:
-            return stage_rows, log_block, overall_text, False, no_update, no_update, no_update, no_update, no_update
+            return stage_rows, log_block, overall_text, False, start_disabled, no_update, no_update, no_update, no_update, no_update
 
         return (
             stage_rows,
             log_block,
             overall_text,
             True,
+            start_disabled,
             _first_change(state.get("qc_record"), qc_current),
             _first_change(state.get("preprocess_record"), preprocess_current),
             _first_change(state.get("analysis_record"), analysis_current),

@@ -10,7 +10,6 @@ from dash.exceptions import PreventUpdate
 
 from core.config import MIN_UNIQUE_SIZE
 from core.models import PhyloMode
-from ui.callbacks_progress import _launch_pipeline_run
 from ui.components.sample_table import render_sample_table
 from ui.runtime_state import build_run_config, decode_upload_content, enum_from_value, resolve_project_data, serialize_run_config, slugify
 
@@ -573,10 +572,11 @@ def register_callbacks(app: Any) -> None:
         config_data = serialize_run_config(run_config)
         config_data["db_sources"] = list(db_sources or [])
         config_data["workflow_mode"] = workflow_mode
-        # "Run Pipeline" now actually runs the pipeline: launch the background
-        # thread here instead of leaving it to a second, separate click on the
-        # Progress page's "Start Pipeline" button.
-        _launch_pipeline_run(run_config, config_data)
-        # Re-arm the progress poller: it disables itself when a run finishes, so
-        # without this a second run never publishes its stage records to the stores.
-        return config_data, project_store, "/progress", "", samples_data, False
+        # "Run Pipeline" configures the run and navigates to Progress, but does NOT
+        # launch it. Starting a pipeline consumes hours of remote NCBI/BOLD queries and,
+        # on this box (3 GB, active OOM killer), a second concurrent run is a guaranteed
+        # OOM — so a run must begin only on an explicit click of the Progress page's
+        # "Start Pipeline" button, the single deliberate trigger. run_id and output_dir
+        # travel in config_data, so that click launches exactly this configuration. The
+        # poller stays disabled until then; "Start Pipeline" re-arms it.
+        return config_data, project_store, "/progress", "", samples_data, True
