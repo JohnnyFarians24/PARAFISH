@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import pathlib
+import re
 import unittest
 
 import pandas as pd
+
+THEME_CSS = pathlib.Path(__file__).resolve().parent.parent / "assets" / "parafish_theme.css"
 
 from ui.components.table import STYLE_CELL, STYLE_HEADER, data_table
 from ui.plots import SMALL_N, alpha_diversity_figure, qc_depth_box_figure
@@ -123,6 +127,82 @@ class LayeringTests(unittest.TestCase):
         for required in ("analysis-sample-table", "analysis-alpha-table", "analysis-plots"):
             self.assertIn(required, analysis, f"{required} must stay on Layer 1")
         self.assertNotIn("analysis-chimera", analysis)
+
+
+class DropdownContrastTests(unittest.TestCase):
+    """dcc.Dropdown on Dash 4 renders react-select v5 (`.Select__*` BEM classes).
+
+    The selected value was invisible on several dropdowns — light text on white —
+    while other dropdowns on the *same* page stayed readable. The cause was a single
+    catch-all rule, `.Select, .Select div, .Select span { color/background: inherit
+    !important }`, whose element-boosted specificity (0,1,1) beats every targeted
+    `.Select__*` class rule (0,1,0). `inherit` then resolved to whatever the ancestor
+    context happened to be, so the same declaration was legible in one place and
+    invisible in another. The theme must style the react-select internals coherently,
+    with no descendant catch-all that overrides them by specificity.
+    """
+
+    def _css(self) -> str:
+        return THEME_CSS.read_text(encoding="utf-8")
+
+    def test_theme_defines_the_react_select_v5_internals(self):
+        css = self._css()
+        # control chrome, the closed-state value, placeholder, arrow/clear, and the
+        # open menu with a distinguishable selected vs. hovered option.
+        for selector in (
+            ".Select__control",
+            ".Select__control--is-focused",
+            ".Select__single-value",
+            ".Select__placeholder",
+            ".Select__menu",
+            ".Select__option",
+            ".Select__option--is-focused",
+            ".Select__option--is-selected",
+            ".Select__dropdown-indicator",
+            ".Select__clear-indicator",
+        ):
+            self.assertIn(selector, css, f"theme must style {selector} for readable dropdowns")
+
+    def test_no_descendant_catch_all_overrides_the_dropdown_internals(self):
+        """The regression guard. `.Select div`/`.Select span` with `inherit` is the
+        exact rule that made the value text invisible; re-introducing it turns this red.
+        """
+        css = self._css()
+        offenders = [
+            line
+            for line in css.splitlines()
+            if re.search(r"\.Select\s+(div|span)\b", line)
+        ]
+        self.assertEqual(
+            offenders,
+            [],
+            "descendant `.Select div`/`.Select span` selectors override the targeted "
+            "`.Select__*` rules by specificity:\n" + "\n".join(offenders),
+        )
+
+    def test_no_page_module_colours_a_dropdown_inline(self):
+        """Inline per-component colour is the divergence the CSS fix removes; it must
+        not creep back site-wise. Dropdowns may set layout inline (width, display) but
+        never a text/background colour — that belongs to the theme's single block."""
+        import pathlib
+
+        ui_root = pathlib.Path(__file__).resolve().parent.parent / "ui"
+        offenders = []
+        for path in ui_root.rglob("*.py"):
+            src = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"dcc\.Dropdown\(", src):
+                depth, i = 1, match.end()
+                while i < len(src) and depth:
+                    depth += (src[i] == "(") - (src[i] == ")")
+                    i += 1
+                block = src[match.start() : i]
+                if re.search(r"[\"']color[\"']\s*:", block) or re.search(r"backgroundColor", block):
+                    offenders.append(f"{path}: {block.splitlines()[0]}")
+        self.assertEqual(
+            offenders,
+            [],
+            "a dcc.Dropdown sets colour inline instead of via the theme:\n" + "\n".join(offenders),
+        )
 
 
 class SingleTableFactoryTests(unittest.TestCase):

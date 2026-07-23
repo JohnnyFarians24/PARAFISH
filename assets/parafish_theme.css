@@ -625,10 +625,13 @@ label,
   border-top-color: var(--text-2) !important;
 }
 
-.Select, .Select div, .Select span {
-  background-color: inherit !important;
-  color: inherit !important;
-}
+/* NB: no descendant catch-all (Select-then-div/span) here. Its element-boosted
+   specificity (0,1,1) beat every targeted `.Select__*` rule (0,1,0) and forced
+   `color/background: inherit`, which resolved to light-text-on-white in some
+   ancestor contexts and stayed readable in others — the same value invisible on
+   one dropdown and legible on the next. The react-select v5 internals are styled
+   by the single `.Select__*` block above; nothing may override them by descendant
+   specificity. Guarded by test_ui_presentation.DropdownContrastTests. */
 
 /* ── Responsivo ──────────────────────────────────────── */
 @media (max-width: 1280px) {
