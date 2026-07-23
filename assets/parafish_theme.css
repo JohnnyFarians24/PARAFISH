@@ -361,9 +361,7 @@ input[type="password"],
 select,
 textarea,
 .dash-input,
-.form-control,
-.Select-control,
-.Select--single .Select-control {
+.form-control {
   background: var(--bg-1) !important;
   color: var(--text-0) !important;
   border: 1px solid var(--bg-4) !important;
@@ -378,17 +376,14 @@ textarea,
 }
 input[type="number"] { -moz-appearance: textfield; }
 input::placeholder,
-textarea::placeholder,
-.Select-placeholder { color: var(--text-2) !important; opacity: 1; }
+textarea::placeholder { color: var(--text-2) !important; opacity: 1; }
 input:focus, select:focus, textarea:focus,
-.form-control:focus, .dash-input:focus,
-.Select-control--is-focused {
+.form-control:focus, .dash-input:focus {
   border-color: var(--blue) !important;
   box-shadow: 0 0 0 3px rgba(103,166,255,.18) !important;
 }
 label,
-.form-check-label,
-.Select-value-label {
+.form-check-label {
   color: var(--text-0) !important;
   font-size: 13px;
   font-weight: 500;
@@ -418,9 +413,12 @@ label,
 .advanced-body { padding: 4px 12px 12px; display: grid; gap: 8px; }
 
 /* ── Dropdowns react-select v5 (Dash dcc.Dropdown) ───────
-   Dash 4.x renders react-select v5 with .Select__* (BEM) classes, which the
-   older .Select-* rules above do not cover — leaving dropdown text invisible on
-   the dark theme (e.g. the BOLD selectors). These rules make them readable. */
+   Dash 4.x renders react-select v5 with .Select__* (BEM) classes. This is the
+   single source of truth for dropdown appearance on the dark theme; the legacy
+   react-select v1 `.Select-*` rules were removed (Dash 4 never emits them, so
+   they styled nothing while looking live). Guarded by
+   test_ui_presentation.DropdownContrastTests, which fails if any v1 selector
+   returns. */
 .Select__control {
   background: var(--bg-1) !important;
   border: 1px solid var(--bg-4) !important;
@@ -590,39 +588,6 @@ label,
   color: var(--blue) !important;
   border-bottom-color: var(--blue) !important;
   background: transparent !important;
-}
-
-/* Dash Dropdown dark theme */
-.Select-control,
-.Select--single .Select-control,
-.Select-menu-outer,
-.Select-option,
-.VirtualizedSelectOption,
-.Select-menu,
-.Select-input,
-.Select-arrow-zone {
-  background-color: var(--bg-1) !important;
-  color: var(--text-0) !important;
-  border-color: var(--bg-4) !important;
-}
-
-.Select-option:hover,
-.Select-option.is-focused,
-.VirtualizedSelectFocusedOption {
-  background-color: var(--bg-3) !important;
-  color: var(--text-0) !important;
-}
-
-.Select-value-label {
-  color: var(--text-0) !important;
-}
-
-.Select-placeholder {
-  color: var(--text-2) !important;
-}
-
-.Select-arrow {
-  border-top-color: var(--text-2) !important;
 }
 
 /* NB: no descendant catch-all (Select-then-div/span) here. Its element-boosted

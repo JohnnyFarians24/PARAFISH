@@ -145,6 +145,11 @@ class DropdownContrastTests(unittest.TestCase):
     def _css(self) -> str:
         return THEME_CSS.read_text(encoding="utf-8")
 
+    def _selectors(self) -> str:
+        """The theme with /* comments */ stripped, so guards match real selectors,
+        not prose that names a selector while explaining why it is gone."""
+        return re.sub(r"/\*.*?\*/", "", self._css(), flags=re.DOTALL)
+
     def test_theme_defines_the_react_select_v5_internals(self):
         css = self._css()
         # control chrome, the closed-state value, placeholder, arrow/clear, and the
@@ -167,10 +172,9 @@ class DropdownContrastTests(unittest.TestCase):
         """The regression guard. `.Select div`/`.Select span` with `inherit` is the
         exact rule that made the value text invisible; re-introducing it turns this red.
         """
-        css = self._css()
         offenders = [
             line
-            for line in css.splitlines()
+            for line in self._selectors().splitlines()
             if re.search(r"\.Select\s+(div|span)\b", line)
         ]
         self.assertEqual(
@@ -178,6 +182,19 @@ class DropdownContrastTests(unittest.TestCase):
             [],
             "descendant `.Select div`/`.Select span` selectors override the targeted "
             "`.Select__*` rules by specificity:\n" + "\n".join(offenders),
+        )
+
+    def test_theme_carries_no_dead_react_select_v1_selectors(self):
+        """Dash 4 emits react-select v5 (`.Select__*`) only; the v1 `.Select-*` and
+        VirtualizedSelect rules matched nothing while looking live — dead CSS that
+        invites someone to "fix a dropdown" by editing a rule that never applies.
+        This flips red if a v1 selector returns, catching a silent version drift."""
+        offenders = re.findall(r"\.Select-[\w-]*|\.VirtualizedSelect\w*", self._selectors())
+        self.assertEqual(
+            offenders,
+            [],
+            "react-select v1 selectors (dead under Dash 4) are back in the theme: "
+            + ", ".join(sorted(set(offenders))),
         )
 
     def test_no_page_module_colours_a_dropdown_inline(self):
