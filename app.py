@@ -149,6 +149,18 @@ def create_app() -> Any:
 def main() -> None:
 	"""Run the development server for manual local testing."""
 	app = create_app()
+	# Startup reconciliation: a run whose progress.json still says "running" has no
+	# owning thread now (the server is only just starting), so it is an OOM-killed or
+	# abandoned orphan. Mark those interrupted before serving — otherwise the newest one
+	# masquerades as the active run and the disk-restore rebuilds BLANK Eixo B pages from
+	# it, indistinguishable from that bug regressing. Wired here, not in create_app, so
+	# the test suite (which builds the app but does not start the server) never mutates
+	# real runs. The predicate keys on the live-thread map, empty at startup.
+	from core.run_registry import reconcile_interrupted_runs
+
+	with _progress_lock:
+		_live_run_ids = {rid for rid, thread in _pipeline_threads.items() if thread.is_alive()}
+	reconcile_interrupted_runs(is_live=lambda run_id: run_id in _live_run_ids)
 	# dev_tools_ui stays ON. Turning it off to suppress the wall of identical
 	# "server did not respond" toasts also suppressed *genuine* callback exceptions, and a
 	# real bug then failed silently — the panel simply never updated and the app looked

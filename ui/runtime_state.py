@@ -40,47 +40,86 @@ def project_run_dir(project_data: Optional[dict], run_id: Optional[str] = None) 
 	return runs_root() / slugify(project_name) / effective_run_id
 
 
-def latest_run_dir(project_data: Optional[dict]) -> Optional[Path]:
-	"""Newest run directory of the active project, or ``None``.
+def _run_state(run_dir: Path) -> dict:
+	"""A run's progress.json as a dict, or ``{}`` if unreadable."""
+	import json
 
-	The stage stores are per-session, so a restarted app (or a fresh tab) loses
-	every result even though the run is still on disk. This is how the UI finds
-	that run again.
-	"""
+	try:
+		state = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
+	except (OSError, ValueError):
+		return {}
+	return state if isinstance(state, dict) else {}
+
+
+def _project_run_dirs(project_data: Optional[dict]) -> list[Path]:
+	"""Every run directory of the active project that has a progress.json."""
 	project = resolve_project_data(project_data)
 	project_name = project.get("project_name")
 	if not project_name:
-		return None
+		return []
 	project_dir = runs_root() / slugify(project_name)
 	if not project_dir.is_dir():
-		return None
-	runs = [path for path in project_dir.iterdir() if path.is_dir() and (path / "progress.json").exists()]
-	if not runs:
-		return None
+		return []
+	return [path for path in project_dir.iterdir() if path.is_dir() and (path / "progress.json").exists()]
+
+
+def _run_is_complete(run_dir: Path) -> bool:
+	"""A run that reached its own end: ``done`` written, not interrupted.
+
+	The normal finish AND the crash path both write ``done: true`` with every stage
+	record, so a failed run still restores (its failed stages show as failed). Only an
+	OOM-killed / abandoned run lacks ``done`` — and reconciliation marks such runs
+	``interrupted`` — so those are the ones excluded here.
+	"""
+	state = _run_state(run_dir)
+	return bool(state.get("done")) and not state.get("interrupted")
+
+
+def _newest_by_run_id(runs: list[Path]) -> Optional[Path]:
 	# By run_id (the directory name), NOT by mtime. The run_id is the UTC creation
 	# timestamp (`timestamp_slug`), so its lexical order IS chronological, and it is
 	# immutable. mtime is not: a re-freeze, a copy, or an editor touching a file inside
 	# an OLD run bumps its mtime above the real newest run, and the restore then rebuilds
 	# the page from that stale/junk run and goes green over it. Proven by a decoy run with
 	# an older run_id forced to the newest mtime — mtime-max picked the decoy.
-	return max(runs, key=lambda path: path.name)
+	return max(runs, key=lambda path: path.name) if runs else None
+
+
+def latest_run_dir(project_data: Optional[dict]) -> Optional[Path]:
+	"""Newest COMPLETE run directory of the active project, or ``None``.
+
+	The disk fallback the four Eixo B pages use when the per-session stores are empty
+	(a restarted app or a fresh tab). It returns only a run that actually FINISHED.
+
+	If the newest run on disk is an orphan — OOM-killed mid-Analysis, so its
+	progress.json has no ``done`` and only partial records — rendering the Eixo B pages
+	from it shows them BLANK, indistinguishable from the Eixo B restore bug having
+	regressed. So an incomplete newest run is skipped in favour of the newest run that
+	did finish; when a project has no complete run at all, this returns ``None`` (the
+	pages then show their honest empty-state) rather than a blank orphan that reads as a
+	broken page. A live in-progress run is not "complete" either, and is correctly not
+	served here — the active session tracks it through its own output_dir, and
+	``restore_run_state`` resumes it; the page fallback is only for finished data.
+	"""
+	return _newest_by_run_id([path for path in _project_run_dirs(project_data) if _run_is_complete(path)])
 
 
 def restore_run_state(project_data: Optional[dict]) -> Optional[dict]:
-	"""Rebuild the run-config and stage records of the project's newest run.
+	"""Rebuild the run-config and stage records of the project's newest tracked run.
 
 	Returns ``None`` when there is nothing to restore. Keys mirror the session
 	stores so a callback can hand them straight back to Dash.
-	"""
-	import json
 
-	run_dir = latest_run_dir(project_data)
+	Unlike the page fallback, this resumes a run that is still IN PROGRESS (so a fresh
+	tab reconnects to the live run and the poller keeps filling it). It only excludes
+	runs marked ``interrupted`` by startup reconciliation — an OOM orphan must not come
+	back as the active run and unlock its half-written, blank pages.
+	"""
+	candidates = [path for path in _project_run_dirs(project_data) if not _run_state(path).get("interrupted")]
+	run_dir = _newest_by_run_id(candidates)
 	if run_dir is None:
 		return None
-	try:
-		state = json.loads((run_dir / "progress.json").read_text(encoding="utf-8"))
-	except (OSError, ValueError):
-		return None
+	state = _run_state(run_dir)
 	if not state.get("run_id"):
 		return None
 	# Only a FINISHED run may hand its stage records back to the stores. While a run

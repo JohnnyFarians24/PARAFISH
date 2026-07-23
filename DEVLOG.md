@@ -1,5 +1,47 @@
 # DEVLOG
 
+## 2026-07-23 — Startup reconciliation: an OOM orphan must not masquerade as the active run and blank the restore.
+
+**The problem, measured.** A pipeline runs in a thread inside the Flask process, so a run left
+`stages: {"Analysis": "running"}` on disk with no `done` is one whose process the OOM killer took
+mid-flight — `runs/` already held 7 such orphans. `latest_run_dir` (shared by Project and the four
+Eixo B pages) picked the newest run by run_id regardless of completion, so if the newest was an
+orphan the disk-restore rebuilt the Eixo B pages from its half-written records and they came back
+BLANK — indistinguishable, to anyone looking, from the Eixo B restore bug having regressed.
+
+**Two protections.** (1) Startup reconciliation (`core.run_registry.reconcile_interrupted_runs`,
+wired in `app.main`, not `create_app`, so the test suite never mutates real runs): a run that claims
+`running` with no live thread is marked `interrupted` (stages `running→interrupted`), deliberately
+NOT `done`. (2) `latest_run_dir` returns only a COMPLETE run (`done`, not interrupted); when a
+project has none it returns `None` — the pages then show their honest empty-state, because a
+"marked orphan" would give the same blank with more steps (its CSVs never finished); only `None`
+distinguishes "nothing here" from "broken", and that distinction is the whole task.
+
+**The mid-task refinement — a test that resisted the wrong change.** The first cut applied a blind
+`done: true` gate to `latest_run_dir`, which `restore_run_state` reused. An EXISTING test,
+`test_a_run_still_in_progress_restores_config_but_no_stage_records`, went red: a genuinely live run
+(no `done`, not interrupted, has a thread) must come back as config-only so a fresh tab reconnects
+the poller. The fix was to REFINE the design, not weaken the test: two consumers hold opposite needs
+over the same word "incomplete", so each got its own selector — `latest_run_dir` is complete-only
+(finished tables for the page fallback), `restore_run_state` selects the newest NON-interrupted run
+(resumes a live run, excludes a reconciled orphan). This is the exact inverse of the 401-tests
+episode: there the tests shared the code's wrong belief; here a test held the line against the wrong
+change. A test that stops the wrong thing is the whole return on the net.
+
+**Proof.** `tests/test_startup_reconciliation.py`: orphan→interrupted, finished run untouched, live
+run never reconciled, `latest_run_dir` prefers the complete run and skips a newer orphan (RED against
+the old max-by-run_id — it returned the orphan), `None` when only orphans, failed-but-finished still
+restores, in-progress resumes config-only, reconciled orphan declined. Eixo B restore against golden
+intact (`test_qc/preprocess/analysis/databases_restore`, `test_project_flow` — 17 passed). Full suite
+485 passed; `golden.py check all` clean on fixture, real, fixture_asv.
+
+**Left standing, and named (Task 7).** A SECOND `latest_run_dir` in `core/run_registry.py` still
+orders by mtime — the same class as the phylo guard: two functions with one responsibility written
+independently, one hardened and the other not. It now has a concrete consequence, not just debt:
+Results (via `run_dir_for`→mtime) can show one run while the Eixo B pages (via runtime_state→
+complete-only) show another — internal divergence within a session, worse than either being wrong
+alone. Task 7 collapses them to a single source, after measuring whether they truly duplicate.
+
 ## 2026-07-22 — verify.py check (f) now reads provenance: a Linnean absence that was CHOSEN is not-applicable, one that DIED still fails.
 
 **The decision from the previous entry, implemented.** Making verify ASV-aware surfaced `(f/asv)`

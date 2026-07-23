@@ -95,6 +95,62 @@ def latest_run_dir(project_data: Optional[dict] = None) -> Optional[Path]:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
+def run_claims_running(state: dict) -> bool:
+    """A run that has not finished but still shows a stage as ``running``.
+
+    That is the exact fingerprint of an OOM-killed / abandoned run: the process that
+    would have written ``done`` and flipped the stage to a terminal status is gone, so
+    the badge lies "running" forever.
+    """
+    if not state or state.get("done") or state.get("interrupted"):
+        return False
+    stages = state.get("stages") or {}
+    return any(status == "running" for status in stages.values())
+
+
+def reconcile_interrupted_runs(runs_root=None, is_live=None) -> list[Path]:
+    """Mark every run that claims to be running but has no live owning thread as
+    interrupted, and return the run dirs touched.
+
+    A pipeline runs in a thread inside the server process, so a run left "running" on
+    disk is one whose process died (OOM kill or restart) — there is no way for a run to
+    outlive its process. This is called at server startup, where no pipeline thread can
+    have survived, so ``is_live`` is universally False; the predicate exists so the
+    invariant ("only reconcile what has no live thread") is explicit and testable, and
+    so a caller that runs it while the server is up cannot clobber a genuinely live run.
+
+    Reconciliation writes ``interrupted: true`` and flips any ``running`` stage to
+    ``interrupted``. It deliberately does NOT set ``done: true``: the run did not finish,
+    so it must stay out of the completed-run set that drives restore.
+    """
+    root = Path(runs_root) if runs_root else Path(get_runs_dir())
+    if not root.exists():
+        return []
+    is_live = is_live or (lambda run_id: False)
+    reconciled: list[Path] = []
+    seen: set[Path] = set()
+    # Runs live at <runs>/<project>/<run_id>/; some legacy layouts are one level up.
+    for pattern in ("*/progress.json", "*/*/progress.json"):
+        for progress_path in root.glob(pattern):
+            if progress_path in seen:
+                continue
+            seen.add(progress_path)
+            state = load_run_state(progress_path.parent)
+            if not run_claims_running(state):
+                continue
+            if is_live(state.get("run_id")):
+                continue
+            state["interrupted"] = True
+            state["overall"] = "interrupted"
+            state["stages"] = {
+                name: ("interrupted" if status == "running" else status)
+                for name, status in (state.get("stages") or {}).items()
+            }
+            progress_path.write_text(json.dumps(state), encoding="utf-8")
+            reconciled.append(progress_path.parent)
+    return reconciled
+
+
 def load_run_state(run_dir) -> dict:
     """The run's progress.json, or ``{}``."""
     if not run_dir:
