@@ -1,5 +1,50 @@
 # DEVLOG
 
+## 2026-07-23 — Tasks 1 & 5 (post-run UI series): dropdowns — the Task 1 diagnosis was REFUTED by the DOM; the real control is a native button.
+
+**The refutation, stated plainly.** Task 1 "fixed" illegible dropdowns by styling react-select
+classes (`.Select-*` v1, then `.Select__*` v5, then a `.Select div/span` catch-all). Measured now
+against the real DOM and the installed bundle: **dcc.Dropdown in this Dash (4.1) is NOT react-select.**
+It is a native `<button class="dash-dropdown">` (`dash/dcc/async-dropdown.js`, embedded
+`src/components/css/dropdown.css`). Every react-select rule the theme carried matched NOTHING. The
+cause named in Task 1 was CSS that never applied; the premise was inferred from a version number
+("Dash 4 → react-select v5") instead of measured against the DOM; and so **two rounds of correction
+could not have had any effect** — the dropdowns were only ever readable/unreadable for reasons the
+theme never touched. The automated check went green because it read the FILE and confirmed the
+selectors were present — never that they matched anything rendered. Fifth incarnation of
+"looks alive, does nothing", this time inside the fix itself.
+
+**The real mechanism, measured.** The button's stylesheet is keyed on `--Dash-*` design tokens whose
+defaults are a LIGHT theme (`--Dash-Fill-Inverse-Strong: #fff`), and `.dash-dropdown { color: inherit }`
+takes the value's colour from the ancestor — so on our dark theme the value read light-on-white, and
+the contextual inheritance is what made it intermittent (the one thing Task 1 got right about the
+*mechanism*, even while wrong about the culprit rule). Fixed the intended way — Via A, redefining the
+tokens — not by overriding the component's own rules with `!important`:
+- `:root:root { --Dash-* : <theme vars> }` — 11 tokens mapped to `--bg-*`/`--text-*`/`--blue`
+  (the accent, not the bundle's purple). `:root:root` (0,2,0) out-specifies the bundle's injected
+  `:root` (0,1,0) so it wins regardless of async-load order, without `!important`.
+- `button.dash-dropdown { color: var(--text-0) }` — the value colour pinned explicitly (0,1,1 beats
+  the component's 0,1,0), because leaving `color: inherit` is the exact fragility this bug taught.
+- A small block ADDING option hover/`[aria-selected]` backgrounds — states the component ships bare;
+  commented as additions, not licence to override.
+
+**The scope, measured not guessed.** The `--Dash-*` tokens are shared by slider/datepicker, but the
+theme has NO slider/datepicker rules (so no double-source), and the slider consumes only
+`--Dash-Spacing` (left at its default) — so a global `:root` themes the dropdown with no surprise
+elsewhere. Global was correct precisely because there was nothing to collide with.
+
+**The guard changed, and this is the point.** The old check verified our own file. The new one
+(`tests/test_dropdown_theme_tokens.py`) asserts the theme's defined `--Dash-*` set COVERS the set the
+INSTALLED bundle consumes — it reads `async-dropdown.js`, so it fails the day a Dash upgrade renames
+or adds a token, which is the failure mode that cost these two sessions and which no CSS-content check
+could catch. But **closure is the user's visual confirmation, not this test** — green here has meant a
+readable dropdown once before and been wrong.
+
+**Task 5 folds in — no population bug.** The Results `results-stage-selector` / `results-sample-selector`
+were logged as "empty / not populated". They have options (confirmed visually); they READ empty
+because the selected value rendered invisible — the same contrast defect, not a missing-options bug.
+That note is closed: there is no population work, only this contrast fix.
+
 ## 2026-07-23 — Task 7 (post-run UI series): one run selector — Results and the Eixo B pages can no longer pick different runs.
 
 **Measured, not assumed.** Two functions named `latest_run_dir`: `ui.runtime_state` (Eixo B page
@@ -34,9 +79,10 @@ opened when it hardened only one of the two.
 
 **Numbering, so the record does not lie.** This is Task 6 of the post-run UI series
 (1 dropdowns illegible, 2 stage-badge lag, 3 single Start trigger, 4 "server did not respond"
-diagnosis, 5 empty `results-stage-selector`/`results-sample-selector`, 6 this). Task 5 is NOT done
-— it is reserved for the empty-dropdown defect, which is gated on a human visual pass and had not
-been confirmed when 6 landed. Tasks were worked 1→2→3→4→6 because 5 was blocked, not skipped. (The
+diagnosis, 5 the Results selectors reading empty, 6 this). Task 5 was gated on a human visual pass
+when 6 landed; it later proved to be the SAME dropdown contrast defect as Task 1 (the selectors have
+options, the value just rendered invisible), fixed in the Tasks 1 & 5 entry above — not a population
+bug. Tasks were worked 1→2→3→4→6 because 5 was blocked, not skipped. (The
 `Task 3` / `T0–T4` entries elsewhere in this DEVLOG belong to the EARLIER UI-unification series, a
 different numbering context.)
 

@@ -412,43 +412,52 @@ label,
 .advanced-summary:hover { color: var(--text-0); }
 .advanced-body { padding: 4px 12px 12px; display: grid; gap: 8px; }
 
-/* ── Dropdowns react-select v5 (Dash dcc.Dropdown) ───────
-   Dash 4.x renders react-select v5 with .Select__* (BEM) classes. This is the
-   single source of truth for dropdown appearance on the dark theme; the legacy
-   react-select v1 `.Select-*` rules were removed (Dash 4 never emits them, so
-   they styled nothing while looking live). Guarded by
-   test_ui_presentation.DropdownContrastTests, which fails if any v1 selector
-   returns. */
-.Select__control {
-  background: var(--bg-1) !important;
-  border: 1px solid var(--bg-4) !important;
-  border-radius: var(--radius-md) !important;
-  min-height: 42px;
-  color: var(--text-0) !important;
+/* ── Dropdowns (Dash 4 dcc.Dropdown) ─────────────────────────────────────────
+   MEASURED against the installed bundle (dash/dcc/async-dropdown.js, embedded
+   src/components/css/dropdown.css). This control is NOT react-select — the earlier
+   `.Select-*` / `.Select__*` rules matched NOTHING and were removed. It is a native
+   <button class="dash-dropdown"> whose own stylesheet is keyed on --Dash-* design
+   tokens, and whose defaults are a LIGHT theme (--Dash-Fill-Inverse-Strong: #fff),
+   so on our dark theme the value read light-on-white.
+
+   We theme it the INTENDED way — by redefining those tokens — instead of overriding
+   the component's rules with !important (which is how the last unmaintainable mess
+   got built). The token set here must cover every --Dash-* the bundle consumes; a
+   Dash upgrade that renames or adds one is caught by
+   test_dropdown_theme_tokens.py — a guard against the installed reality, not against
+   our own file.
+
+   :root:root, not :root: the bundle injects its light defaults on a plain :root at
+   async-load time (AFTER this static asset), so ours must out-specify it
+   (0,2,0 > 0,1,0) to win regardless of injection order — without !important. */
+:root:root {
+  --Dash-Fill-Inverse-Strong: var(--bg-1);        /* button + menu background */
+  --Dash-Stroke-Strong: var(--bg-4);              /* borders */
+  --Dash-Text-Strong: var(--text-0);              /* trigger value, chevron icon */
+  --Dash-Text-Weak: var(--text-1);                /* value-count badge, action buttons */
+  --Dash-Text-Disabled: var(--text-2);            /* placeholder */
+  --Dash-Fill-Interactive-Strong: var(--blue);    /* focus/hover accent — NOT the bundle's purple */
+  --Dash-Fill-Interactive-Weak: rgba(103,166,255,.16);
+  --Dash-Fill-Disabled: var(--bg-4);              /* option separators */
+  --Dash-Shading-Strong: rgba(0,0,0,.5);          /* menu drop shadow */
+  --Dash-Shading-Weak: rgba(0,0,0,.35);
+  --Dash-Spacing: 4px;                            /* the bundle default; pinned so the guard covers it */
 }
-.Select__control--is-focused {
-  border-color: var(--blue) !important;
-  box-shadow: 0 0 0 3px rgba(103,166,255,.18) !important;
-}
-.Select__single-value,
-.Select__input-container,
-.Select__input,
-.Select__multi-value__label { color: var(--text-0) !important; }
-.Select__placeholder { color: var(--text-2) !important; }
-.Select__menu {
-  background: var(--bg-2) !important;
-  border: 1px solid var(--bg-4) !important;
-  z-index: 20;
-}
-.Select__menu-list { background: var(--bg-2) !important; }
-.Select__option { background: var(--bg-2) !important; color: var(--text-0) !important; }
-.Select__option--is-focused { background: var(--bg-3) !important; }
-.Select__option--is-selected { background: var(--blue) !important; color: #0b0f14 !important; }
-.Select__multi-value { background: var(--bg-3) !important; border-radius: var(--radius-sm); }
-.Select__indicator,
-.Select__dropdown-indicator,
-.Select__clear-indicator { color: var(--text-2) !important; }
-.Select__indicator-separator { background-color: var(--bg-4) !important; }
+
+/* The trigger's own rule is `color: inherit`, so the value's colour depends on the
+   ancestor — the contextual-inheritance mechanism that made the ORIGINAL bug
+   intermittent (invisible in one place, legible in the next). Pin it explicitly so a
+   dropdown dropped inside a light card cannot break again. `button.dash-dropdown`
+   (0,1,1) beats the component's `.dash-dropdown` (0,1,0) with no !important. */
+button.dash-dropdown { color: var(--text-0); }
+
+/* ADDITIONS, not overrides: the option list ships NO themed hover/selected
+   background (the radio that marks selection is visually hidden), so these DEFINE the
+   states the component leaves bare — they are not licence to override its rules.
+   Selected (accent tint) stays distinguishable from hover (neutral). */
+.dash-options-list-option-text { color: var(--text-0); }
+.dash-options-list-option:hover { background: var(--bg-3); }
+.dash-options-list-option[aria-selected="true"] { background: rgba(103,166,255,.18); }
 
 /* ── Botões ──────────────────────────────────────────── */
 .btn-parafish {
@@ -589,14 +598,6 @@ label,
   border-bottom-color: var(--blue) !important;
   background: transparent !important;
 }
-
-/* NB: no descendant catch-all (Select-then-div/span) here. Its element-boosted
-   specificity (0,1,1) beat every targeted `.Select__*` rule (0,1,0) and forced
-   `color/background: inherit`, which resolved to light-text-on-white in some
-   ancestor contexts and stayed readable in others — the same value invisible on
-   one dropdown and legible on the next. The react-select v5 internals are styled
-   by the single `.Select__*` block above; nothing may override them by descendant
-   specificity. Guarded by test_ui_presentation.DropdownContrastTests. */
 
 /* ── Responsivo ──────────────────────────────────────── */
 @media (max-width: 1280px) {

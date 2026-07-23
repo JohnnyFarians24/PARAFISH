@@ -130,71 +130,28 @@ class LayeringTests(unittest.TestCase):
 
 
 class DropdownContrastTests(unittest.TestCase):
-    """dcc.Dropdown on Dash 4 renders react-select v5 (`.Select__*` BEM classes).
-
-    The selected value was invisible on several dropdowns — light text on white —
-    while other dropdowns on the *same* page stayed readable. The cause was a single
-    catch-all rule, `.Select, .Select div, .Select span { color/background: inherit
-    !important }`, whose element-boosted specificity (0,1,1) beats every targeted
-    `.Select__*` class rule (0,1,0). `inherit` then resolved to whatever the ancestor
-    context happened to be, so the same declaration was legible in one place and
-    invisible in another. The theme must style the react-select internals coherently,
-    with no descendant catch-all that overrides them by specificity.
+    """Dash 4's dcc.Dropdown is a native <button class="dash-dropdown"> with its own
+    --Dash-* token stylesheet — NOT react-select. It was measured against the installed
+    bundle (see test_dropdown_theme_tokens.py). Every react-select rule the theme once
+    carried (`.Select-*` v1 AND `.Select__*` v5) matched nothing in this Dash version:
+    dead CSS that looked live and cost two sessions of fixing the wrong thing. This
+    guard keeps ALL of it out — any `.Select` selector returning is the same trap.
     """
 
-    def _css(self) -> str:
-        return THEME_CSS.read_text(encoding="utf-8")
-
     def _selectors(self) -> str:
-        """The theme with /* comments */ stripped, so guards match real selectors,
-        not prose that names a selector while explaining why it is gone."""
-        return re.sub(r"/\*.*?\*/", "", self._css(), flags=re.DOTALL)
+        """The theme with /* comments */ stripped, so the guard matches real selectors,
+        not prose that names one while explaining why it is gone."""
+        return re.sub(r"/\*.*?\*/", "", THEME_CSS.read_text(encoding="utf-8"), flags=re.DOTALL)
 
-    def test_theme_defines_the_react_select_v5_internals(self):
-        css = self._css()
-        # control chrome, the closed-state value, placeholder, arrow/clear, and the
-        # open menu with a distinguishable selected vs. hovered option.
-        for selector in (
-            ".Select__control",
-            ".Select__control--is-focused",
-            ".Select__single-value",
-            ".Select__placeholder",
-            ".Select__menu",
-            ".Select__option",
-            ".Select__option--is-focused",
-            ".Select__option--is-selected",
-            ".Select__dropdown-indicator",
-            ".Select__clear-indicator",
-        ):
-            self.assertIn(selector, css, f"theme must style {selector} for readable dropdowns")
-
-    def test_no_descendant_catch_all_overrides_the_dropdown_internals(self):
-        """The regression guard. `.Select div`/`.Select span` with `inherit` is the
-        exact rule that made the value text invisible; re-introducing it turns this red.
-        """
-        offenders = [
-            line
-            for line in self._selectors().splitlines()
-            if re.search(r"\.Select\s+(div|span)\b", line)
-        ]
+    def test_theme_carries_no_react_select_selectors_at_all(self):
+        """react-select never rendered here; a `.Select*` rule is dead CSS that invites
+        the next person to 'fix a dropdown' by editing something that never applies."""
+        offenders = sorted(set(re.findall(r"\.Select[\w_-]*", self._selectors())))
         self.assertEqual(
             offenders,
             [],
-            "descendant `.Select div`/`.Select span` selectors override the targeted "
-            "`.Select__*` rules by specificity:\n" + "\n".join(offenders),
-        )
-
-    def test_theme_carries_no_dead_react_select_v1_selectors(self):
-        """Dash 4 emits react-select v5 (`.Select__*`) only; the v1 `.Select-*` and
-        VirtualizedSelect rules matched nothing while looking live — dead CSS that
-        invites someone to "fix a dropdown" by editing a rule that never applies.
-        This flips red if a v1 selector returns, catching a silent version drift."""
-        offenders = re.findall(r"\.Select-[\w-]*|\.VirtualizedSelect\w*", self._selectors())
-        self.assertEqual(
-            offenders,
-            [],
-            "react-select v1 selectors (dead under Dash 4) are back in the theme: "
-            + ", ".join(sorted(set(offenders))),
+            "dead react-select selectors are back in the theme (this control is a native "
+            "button, see the dcc.Dropdown block): " + ", ".join(offenders),
         )
 
     def test_no_page_module_colours_a_dropdown_inline(self):
