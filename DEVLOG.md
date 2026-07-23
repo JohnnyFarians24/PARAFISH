@@ -1,6 +1,14 @@
 # DEVLOG
 
-## 2026-07-23 — Startup reconciliation: an OOM orphan must not masquerade as the active run and blank the restore.
+## 2026-07-23 — Task 6 (post-run UI series): Startup reconciliation — an OOM orphan must not masquerade as the active run and blank the restore.
+
+**Numbering, so the record does not lie.** This is Task 6 of the post-run UI series
+(1 dropdowns illegible, 2 stage-badge lag, 3 single Start trigger, 4 "server did not respond"
+diagnosis, 5 empty `results-stage-selector`/`results-sample-selector`, 6 this). Task 5 is NOT done
+— it is reserved for the empty-dropdown defect, which is gated on a human visual pass and had not
+been confirmed when 6 landed. Tasks were worked 1→2→3→4→6 because 5 was blocked, not skipped. (The
+`Task 3` / `T0–T4` entries elsewhere in this DEVLOG belong to the EARLIER UI-unification series, a
+different numbering context.)
 
 **The problem, measured.** A pipeline runs in a thread inside the Flask process, so a run left
 `stages: {"Analysis": "running"}` on disk with no `done` is one whose process the OOM killer took
