@@ -63,18 +63,6 @@ def _project_run_dirs(project_data: Optional[dict]) -> list[Path]:
 	return [path for path in project_dir.iterdir() if path.is_dir() and (path / "progress.json").exists()]
 
 
-def _run_is_complete(run_dir: Path) -> bool:
-	"""A run that reached its own end: ``done`` written, not interrupted.
-
-	The normal finish AND the crash path both write ``done: true`` with every stage
-	record, so a failed run still restores (its failed stages show as failed). Only an
-	OOM-killed / abandoned run lacks ``done`` — and reconciliation marks such runs
-	``interrupted`` — so those are the ones excluded here.
-	"""
-	state = _run_state(run_dir)
-	return bool(state.get("done")) and not state.get("interrupted")
-
-
 def _newest_by_run_id(runs: list[Path]) -> Optional[Path]:
 	# By run_id (the directory name), NOT by mtime. The run_id is the UTC creation
 	# timestamp (`timestamp_slug`), so its lexical order IS chronological, and it is
@@ -100,8 +88,15 @@ def latest_run_dir(project_data: Optional[dict]) -> Optional[Path]:
 	broken page. A live in-progress run is not "complete" either, and is correctly not
 	served here — the active session tracks it through its own output_dir, and
 	``restore_run_state`` resumes it; the page fallback is only for finished data.
+
+	The run SELECTION is ``core.run_registry.newest_complete_run`` — the SAME primitive
+	Results uses — so the two surfaces can never pick different runs. Only the scope
+	differs (this is project-only; Results falls back across projects), the one legitimate
+	difference between them.
 	"""
-	return _newest_by_run_id([path for path in _project_run_dirs(project_data) if _run_is_complete(path)])
+	from core.run_registry import newest_complete_run
+
+	return newest_complete_run(_project_run_dirs(project_data))
 
 
 def restore_run_state(project_data: Optional[dict]) -> Optional[dict]:

@@ -64,15 +64,40 @@ def run_dir_for(run_config_data: Optional[dict] = None, project_data: Optional[d
     return latest_run_dir(project_data)
 
 
+def _run_dir_is_complete(run_dir: Path) -> bool:
+    state = load_run_state(run_dir)
+    return bool(state.get("done")) and not state.get("interrupted")
+
+
+def newest_complete_run(run_dirs) -> Optional[Path]:
+    """The newest FINISHED run among ``run_dirs`` — the SINGLE source of truth for
+    "which run does the UI restore", shared by Results (``run_dir_for``) and the Eixo B
+    pages (``ui.runtime_state.latest_run_dir``) so the two can never pick different runs
+    in one session.
+
+    Ordered by run_id — the immutable UTC directory name, whose lexical order IS
+    chronological — and NEVER by mtime, which a re-freeze, a copy, or an editor touching
+    a file inside an old run bumps above the real newest. Skips OOM orphans (no ``done``,
+    or ``interrupted``): their partial records render the pages blank, which reads as the
+    restore having broken.
+    """
+    complete = [Path(run_dir) for run_dir in run_dirs if _run_dir_is_complete(Path(run_dir))]
+    return max(complete, key=lambda path: path.name) if complete else None
+
+
 def latest_run_dir(project_data: Optional[dict] = None) -> Optional[Path]:
-    """Newest run directory that actually has a progress.json, or ``None``."""
+    """Newest COMPLETE run directory for the UI, or ``None``.
+
+    Runs live at <runs>/<project>/<timestamp>/. Prefer the active project's, but fall
+    back to every project so a user who never opened Setup still sees their last run —
+    the one axis on which this legitimately differs from the project-scoped Eixo B
+    fallback. The run SELECTION (newest complete by run_id) is the shared primitive, so
+    Results and Eixo B agree on which run within a scope.
+    """
     runs_root = Path(get_runs_dir())
     if not runs_root.exists():
         return None
 
-    candidates: list[Path] = []
-    # Runs live at <runs>/<project>/<timestamp>/. Prefer the active project's, but fall
-    # back to every project so a user who never opened Setup still sees their last run.
     search_roots = []
     active = (project_data or {}).get("active_id")
     projects = (project_data or {}).get("projects") or {}
@@ -84,15 +109,15 @@ def latest_run_dir(project_data: Optional[dict] = None) -> Optional[Path]:
     for root in search_roots:
         if not root.exists():
             continue
-        candidates = [path.parent for path in root.glob("*/progress.json")]
-        if not candidates:
-            candidates = [path.parent for path in root.glob("*/*/progress.json")]
-        if candidates:
-            break
-
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+        run_dirs = [path.parent for path in root.glob("*/progress.json")]
+        if not run_dirs:
+            run_dirs = [path.parent for path in root.glob("*/*/progress.json")]
+        if run_dirs:
+            # This root owns the answer (the first with any runs), so its runs decide it;
+            # if they are all orphans the result is None rather than leaking to another
+            # project's runs.
+            return newest_complete_run(run_dirs)
+    return None
 
 
 def run_claims_running(state: dict) -> bool:

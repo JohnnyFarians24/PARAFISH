@@ -1,5 +1,35 @@
 # DEVLOG
 
+## 2026-07-23 — Task 7 (post-run UI series): one run selector — Results and the Eixo B pages can no longer pick different runs.
+
+**Measured, not assumed.** Two functions named `latest_run_dir`: `ui.runtime_state` (Eixo B page
+fallback) was hardened in Task 6 to order by run_id and skip incomplete runs; `core.run_registry`
+(Results, via `run_dir_for`) still ordered by **mtime** with **no completeness gate**. Same
+responsibility written independently, one hardened and one not — the phylo-guard class. And a
+concrete consequence, not just debt: with an OOM orphan as the newest run, Results picked the orphan
+while the Eixo B pages picked the last finished run — two different runs in ONE session, worse than
+either being wrong alone. `run_registry.latest_run_dir` is called only by `run_dir_for`, whose
+session-`output_dir` branch already serves the active/in-progress run, so its `latest_run_dir` branch
+is purely the cross-session fallback — the same question Eixo B asks.
+
+**Duplicate on one axis, legitimately different on another.** They shared the SELECTION question
+(newest run to restore) but ran different implementations of it (the bug). They differ legitimately
+on SCOPE: Results falls back across all projects (a user who never opened Setup still sees their last
+run — pinned by `test_the_run_is_found_with_no_ui_state_at_all`), Eixo B is project-scoped. So the
+collapse was of the selection, not the scope: a single primitive
+`core.run_registry.newest_complete_run(run_dirs)` (newest complete by run_id, skips orphans) that
+BOTH `run_registry.latest_run_dir` and `ui.runtime_state.latest_run_dir` call. Like
+`MIN_TREE_SEQUENCES`: one definition, two call sites, not two definitions kept in sync. The third
+selector, `restore_run_state` (newest NON-interrupted, includes in-progress), was left alone — it
+answers a different question (resume a live session vs fall back to finished tables), a legitimate
+difference, not duplication.
+
+**Check seen to fail.** `tests/test_run_dir_single_source.py`: with an orphan newest by run_id AND
+mtime, Results and Eixo B chose different runs (RED); now both pick the finished run. An older run_id
+with a bumped mtime no longer beats the true newest run_id (the mtime hazard, gone). Full suite 490
+passed; `golden.py check all` clean on fixture, real, fixture_asv. This closes the divergence Task 6
+opened when it hardened only one of the two.
+
 ## 2026-07-23 — Task 6 (post-run UI series): Startup reconciliation — an OOM orphan must not masquerade as the active run and blank the restore.
 
 **Numbering, so the record does not lie.** This is Task 6 of the post-run UI series
