@@ -159,6 +159,32 @@ class BackendGuardTests(unittest.TestCase):
         self.assertFalse(self.cp._any_pipeline_running(), "after the thread ends, not running")
 
 
+class IdleProgressPageTests(unittest.TestCase):
+    """Removing the auto-start means reaching /progress no longer implies a run began.
+    The idle page must say it is waiting for the click, not sit blank like a hang."""
+
+    def test_the_idle_status_tells_the_user_to_press_start(self):
+        from ui.pages.page_progress import layout
+
+        def _find(node, node_id):
+            if getattr(node, "id", None) == node_id:
+                return node
+            children = getattr(node, "children", None)
+            if children is None:
+                return None
+            for child in children if isinstance(children, (list, tuple)) else [children]:
+                found = _find(child, node_id)
+                if found is not None:
+                    return found
+            return None
+
+        status = _find(layout(), "progress-overall-status")
+        self.assertIsNotNone(status, "the idle page must have a status badge")
+        text = status.children if isinstance(status.children, str) else ""
+        self.assertTrue(text.strip(), "the idle status must not be blank")
+        self.assertIn("Start Pipeline", text, "idle status must point the user at the trigger")
+
+
 class ButtonDisabledWiringTests(unittest.TestCase):
     """The button's disabled state must be wired to the live-thread signal in both the
     click and the poll callbacks — the click for immediacy, the poll to re-enable when
