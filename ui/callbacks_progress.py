@@ -134,7 +134,11 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
     preprocess_metrics_files: dict[str, str] = {}
 
     def _publish() -> None:
-        return None
+        # Persist the stage badges the instant they change. write_progress merges the
+        # "stages" dict (core/progress_writer), so this never clobbers a record,
+        # run_config or log_lines — it only lets the poller see a stage as "running"
+        # the moment it starts, instead of one stage behind.
+        write_progress(progress_path, {"stages": dict(stages)})
 
     def _write_progress_state() -> None:
         # Note: "log_lines" is deliberately NOT included here — append_log() already
@@ -222,15 +226,17 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 "log_lines": logs.copy(),
             }
             progress_state["qc_record"] = qc_record
-            _write_progress_state()
+            # Mark the stage terminal BEFORE the write, so the record and its badge
+            # land in the same snapshot — never "success record, running badge".
             stages["QC"] = qc_record["status"]
+            _write_progress_state()
             active_stage_results.append(qc_record["status"] == "success")
             _publish()
         else:
             qc_record = _skipped_record()
             progress_state["qc_record"] = qc_record
-            _write_progress_state()
             stages["QC"] = "skipped"
+            _write_progress_state()
             _publish()
 
         # Preprocess
@@ -346,15 +352,15 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 "log_lines": logs.copy(),
             }
             progress_state["preprocess_record"] = preprocess_record
-            _write_progress_state()
             stages["Preprocess"] = preprocess_record["status"]
+            _write_progress_state()
             active_stage_results.append(preprocess_record["status"] == "success")
             _publish()
         else:
             preprocess_record = _skipped_record()
             progress_state["preprocess_record"] = preprocess_record
-            _write_progress_state()
             stages["Preprocess"] = "skipped"
+            _write_progress_state()
             _publish()
 
         if not run_preprocess:
@@ -603,8 +609,8 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 "log_lines": logs.copy(),
             }
             progress_state["analysis_record"] = analysis_record
-            _write_progress_state()
             stages["Analysis"] = analysis_record["status"]
+            _write_progress_state()
             active_stage_results.append(analysis_record["status"] == "success")
             _publish()
         else:
@@ -818,8 +824,8 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     "log_lines": logs.copy(),
                 }
                 progress_state["db_record"] = db_record
-                _write_progress_state()
                 stages["Databases"] = db_record["status"]
+                _write_progress_state()
                 active_stage_results.append(db_record["status"] == "success")
                 _publish()
         else:
@@ -918,8 +924,8 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     "log_lines": logs.copy(),
                 }
                 progress_state["phylo_record"] = phylo_record
-                _write_progress_state()
                 stages["Phylo"] = phylo_record["status"]
+                _write_progress_state()
                 active_stage_results.append(phylo_record["status"] == "success")
                 _publish()
         else:
