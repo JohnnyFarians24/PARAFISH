@@ -29,8 +29,29 @@ with dashes must not buy it past a floor that exists to guarantee alignable sequ
 **And a second, deliberately literal test pinning the value 50 itself** — because the
 boundary test derives its inputs *from* the constant, so it proves the comparison and not
 the number. Verified by mutation: with the constant moved to 100, the first version still
-passed; with the value pin added, 11 tests fail. A scientific choice should have to change
-a test.
+passed; with the value pin added, 11 tests fail.
+
+**The generalisation, which is the part worth carrying out of here:**
+
+> **If you change the value and nothing goes red, the value was never pinned — it was
+> only being used.** A scientific choice must force a test to change.
+
+That is a sharper instrument than it looks, because it is *executable*. The first
+boundary test looked rigorous, was written deliberately, and was checked into a suite of
+540 green tests — and it was measured to be worthless by the simplest possible experiment:
+change the number, re-run, see nothing fail. A test derived from the constant it means to
+protect can only ever prove the code is self-consistent, which is the same failure mode as
+`verify.py` check (f) (coherence is not correctness) and as `golden.py check` (a faithful
+comparison of two stale files). Third time this project has met that shape, now in three
+different instruments.
+
+**On the list, not now: run the same mutation experiment on every other scientific
+parameter** — `MIN_UNIQUE_SIZE`, PEAR's `min_overlap`, the clustering identity (0.97),
+`sintax_cutoff` (0.8), and `trimmomatic.minlen`. Change each, re-run the suite, and record
+which ones the suite fails to notice. Any that stay green are in exactly the position
+`MIN_REFERENCE_LENGTH` was in, and every one of them is a documented, deliberate decision
+that someone could currently alter without meeting any resistance at all. The 0.97 is the
+one to check first: it is the parameter this pipeline's entire feature count rests on.
 
 ## 2026-07-24 — DECIDED (Task 4f, ahead of the work): the SINTAX columns are ALWAYS present, even when no SINTAX source ran.
 
