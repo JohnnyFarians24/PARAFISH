@@ -125,13 +125,24 @@ def restore_run_state(project_data: Optional[dict]) -> Optional[dict]:
 	# run-config regardless so the poller resumes and fills every stage together at the
 	# end; leave the stage stores empty until then so the tabs stay locked.
 	done = bool(state.get("done"))
+	# Stamped with the run they were read from, and the run_config below points at that
+	# same run. The two MUST agree: the identity check that keeps a previous run's
+	# records off a new run's pages would otherwise reject these on arrival and blank
+	# all four Eixo B pages at once — the restore bug, reintroduced by its own guard.
+	from ui.pipeline_state import stamp_record
+
+	run_id = state["run_id"]
+
+	def _restored(key: str) -> dict:
+		return stamp_record(state.get(key) or {}, run_id) if done else {}
+
 	return {
-		"run_config": {"run_id": state["run_id"], "output_dir": str(run_dir)},
-		"qc": (state.get("qc_record") or {}) if done else {},
-		"preprocess": (state.get("preprocess_record") or {}) if done else {},
-		"analysis": (state.get("analysis_record") or {}) if done else {},
-		"databases": (state.get("db_record") or {}) if done else {},
-		"phylo": (state.get("phylo_record") or {}) if done else {},
+		"run_config": {"run_id": run_id, "output_dir": str(run_dir)},
+		"qc": _restored("qc_record"),
+		"preprocess": _restored("preprocess_record"),
+		"analysis": _restored("analysis_record"),
+		"databases": _restored("db_record"),
+		"phylo": _restored("phylo_record"),
 	}
 
 

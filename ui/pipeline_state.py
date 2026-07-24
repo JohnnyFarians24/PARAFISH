@@ -12,6 +12,42 @@ def utc_now_iso() -> str:
 	return datetime.now().astimezone().replace(microsecond=0).isoformat()
 
 
+# The run a stage record was produced by. Dunder-ish so it cannot collide with a key a
+# StepOutput record legitimately carries (status, outputs, metrics_files, ...).
+RUN_ID_KEY = "__run_id__"
+
+
+def stamp_record(record: Optional[dict], run_id: Optional[str]) -> dict:
+	"""Tag ``record`` with the run that produced it.
+
+	Every write to a stage store goes through here. The stage stores are per-session
+	and nothing cleared them when a new run started, so the previous run's records
+	survived into the new run with ``status: "success"`` intact — every stage page
+	read them in preference to the disk, and showed the old run's results while a new
+	one was executing. A record that cannot say which run it came from cannot be
+	checked against the run on screen.
+	"""
+	stamped = dict(record or {})
+	if not stamped:
+		return stamped
+	stamped[RUN_ID_KEY] = str(run_id or "")
+	return stamped
+
+
+def record_belongs_to(record: Optional[dict], run_id: Optional[str]) -> bool:
+	"""Whether ``record`` was produced by ``run_id``.
+
+	An UNSTAMPED record is never a match. Records written before this existed are
+	already sitting in open sessions, and treating them as compatible would keep the
+	bug alive for exactly the users who have the app open — which is the population
+	the fix is for. The cost of the strict reading is one refresh; the cost of the
+	lenient one is trusting data that cannot identify itself, which is the failure
+	this whole mechanism exists to close.
+	"""
+	stamped = str((record or {}).get(RUN_ID_KEY) or "")
+	return bool(stamped) and stamped == str(run_id or "")
+
+
 def get_stage_record(step_outputs: Optional[dict], stage: str) -> dict:
 	return dict((step_outputs or {}).get(stage) or {})
 

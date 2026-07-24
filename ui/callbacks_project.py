@@ -11,7 +11,7 @@ from dash.exceptions import PreventUpdate
 from dash import ALL
 
 from core.project_store import load_all_projects, load_project_bundle, save_project_bundle
-from ui.pipeline_state import get_stage_record, stage_status
+from ui.pipeline_state import get_stage_record, record_belongs_to, stage_status
 from ui.components.sidebar import render_sidebar
 from ui.components.topbar import render_topbar
 from ui.runtime_state import resolve_project_data, restore_run_state
@@ -376,6 +376,105 @@ def register_callbacks(app: Any) -> None:
 			restored["analysis"],
 			restored["databases"],
 			restored["phylo"],
+		)
+
+	@app.callback(
+		Output("store-qc-outputs", "data", allow_duplicate=True),
+		Output("store-preprocess-outputs", "data", allow_duplicate=True),
+		Output("store-analysis-outputs", "data", allow_duplicate=True),
+		Output("store-databases-outputs", "data", allow_duplicate=True),
+		Output("store-phylo-outputs", "data", allow_duplicate=True),
+		Input("store-run-config", "data"),
+		State("store-qc-outputs", "data"),
+		State("store-preprocess-outputs", "data"),
+		State("store-analysis-outputs", "data"),
+		State("store-databases-outputs", "data"),
+		State("store-phylo-outputs", "data"),
+		prevent_initial_call=True,
+	)
+	def _drop_records_from_another_run(run_config, qc, preprocess, analysis, databases, phylo):
+		"""Discard stage records that a DIFFERENT run produced.
+
+		The stage stores are per-session and the run-start callback writes only
+		``store-run-config`` — nothing ever cleared these five, so starting a new run
+		left the previous run's records in place with ``status: "success"``. Every stage
+		page reads the store before it reads the disk, so the tabs stayed unlocked and
+		showed the old run's tables while the new run was still executing.
+
+		Checked here, once, rather than at the ~50 places that read a record: this
+		fires whenever the active run changes, so every reader downstream sees either
+		this run's record or nothing, without any of them learning about run identity.
+
+		Not a clear-on-start: a record that matches is left alone (``no_update``), which
+		is what lets a finished run's pages survive a re-render. Only a mismatch — or a
+		record too old to say which run it came from — is dropped.
+		"""
+		run_id = (run_config or {}).get("run_id")
+		if not run_id:
+			# No active run to compare against. Dropping here would clobber the restore
+			# during initial load, and there is no wrong data to protect against yet.
+			raise PreventUpdate
+		results = [
+			{} if store and not record_belongs_to(store, run_id) else no_update
+			for store in (qc, preprocess, analysis, databases, phylo)
+		]
+		if all(value is no_update for value in results):
+			raise PreventUpdate
+		return tuple(results)
+
+	@app.callback(
+		Output("qc-run-banner", "children"),
+		Output("preprocess-run-banner", "children"),
+		Output("analysis-run-banner", "children"),
+		Output("databases-run-banner", "children"),
+		Output("phylo-run-banner", "children"),
+		Input("store-run-config", "data"),
+		Input("store-qc-outputs", "data"),
+		Input("store-preprocess-outputs", "data"),
+		Input("store-analysis-outputs", "data"),
+		Input("store-databases-outputs", "data"),
+		Input("store-phylo-outputs", "data"),
+	)
+	def _stage_run_banners(run_config, qc, preprocess, analysis, databases, phylo):
+		"""Say outright that a stage has not run in the ACTIVE run.
+
+		Without this, dropping another run's records only turns the old tables into a
+		blank page — which reads as the restore having broken, the exact confusion the
+		Eixo B work exists to prevent. A stage with no record while a run is live gets a
+		sentence saying so; a stage with no record and no live run says nothing, and the
+		page's own empty state stands.
+		"""
+		from core.run_registry import load_run_state
+
+		run_id = (run_config or {}).get("run_id")
+		output_dir = (run_config or {}).get("output_dir")
+		if not run_id or not output_dir:
+			return "", "", "", "", ""
+		state = load_run_state(output_dir)
+		if state.get("run_id") != run_id or state.get("done") or state.get("interrupted"):
+			# Not a live run: nothing is pending, so there is nothing to wait for.
+			return "", "", "", "", ""
+
+		stages = state.get("stages") or {}
+
+		def _banner(store, stage):
+			if record_belongs_to(store, run_id):
+				return ""
+			status = str(stages.get(stage) or "pending")
+			detail = "a correr agora" if status == "running" else "ainda não começou"
+			return html.Div(
+				f"Esta etapa ainda não correu nesta run ({detail}). "
+				f"Os resultados aparecem quando a run terminar.",
+				className="badge badge-amber",
+				style={"marginBottom": "8px"},
+			)
+
+		return (
+			_banner(qc, "qc"),
+			_banner(preprocess, "preprocess"),
+			_banner(analysis, "analysis"),
+			_banner(databases, "databases"),
+			_banner(phylo, "phylo"),
 		)
 
 	@app.callback(

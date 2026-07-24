@@ -38,7 +38,7 @@ from preprocess.preprocess_metrics import build_preprocess_metrics
 from preprocess.trimmomatic_runner import run_trimmomatic
 from qc.fastqc_runner import run_fastqc
 from qc.qc_metrics import build_qc_metrics
-from ui.pipeline_state import utc_now_iso
+from ui.pipeline_state import stamp_record, utc_now_iso
 from ui.runtime_state import build_sample_from_record, run_config_from_store, serialize_step_output
 
 def _stage_entry(stage_name: str, status: str) -> str:
@@ -1115,7 +1115,10 @@ def register_callbacks(app: Any) -> None:
         # publish a record the first time it differs from what the store already holds,
         # so those trailing ticks do not re-render the heavy stage tables and plots.
         def _first_change(record, current):
-            return record if record != current else no_update
+            # Stamped with the run that produced it, so a stage page can tell this
+            # record from the one the PREVIOUS run left in the same session store.
+            stamped = stamp_record(record, run_id)
+            return stamped if stamped != current else no_update
 
         # The Start button follows the LIVE THREAD, not this disk snapshot: it stays
         # disabled while a run is genuinely executing and re-enables the moment the

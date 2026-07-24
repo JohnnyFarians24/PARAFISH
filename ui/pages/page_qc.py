@@ -18,6 +18,7 @@ def layout():
 	return html.Div(
 		[
 			html.Div([html.Div("Quality control", className="page-title"), html.Div("FastQC summaries before trimming.", className="page-sub")], className="page-header"),
+			html.Div(id="qc-run-banner"),
 			html.Div([html.Button("Run QC", id="btn-run-qc", className="btn-run")], className="control-row"),
 			html.Div(id="qc-summary", className="empty-state card"),
 

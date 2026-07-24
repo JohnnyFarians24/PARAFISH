@@ -24,6 +24,7 @@ def layout():
 				],
 				className="page-header",
 			),
+			html.Div(id="phylo-run-banner"),
 			html.Div([html.Button("Run Phylo", id="btn-run-phylo", className="btn-run")], className="control-row"),
 			html.Div(id="phylo-summary", className="empty-state card"),
 			html.Div(id="phylo-pipeline-bar"),

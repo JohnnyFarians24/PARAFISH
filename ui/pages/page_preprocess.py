@@ -21,6 +21,7 @@ def layout():
 	return html.Div(
 		[
 			html.Div([html.Div("Preprocess", className="page-title"), html.Div("Trimmomatic and PEAR parameters with per-sample progress.", className="page-sub")], className="page-header"),
+			html.Div(id="preprocess-run-banner"),
 			html.Div([html.Button("Run Preprocess", id="btn-run-preprocess", className="btn-run")], className="control-row"),
 			html.Div(id="preprocess-summary", className="empty-state card"),
 			html.Div(id="preprocess-pipeline-bar"),

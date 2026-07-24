@@ -12,6 +12,7 @@ def layout():
 	return html.Div(
 		[
 			html.Div([html.Div("Analysis", className="page-title"), html.Div("VSEARCH and DADA2 side by side.", className="page-sub")], className="page-header"),
+			html.Div(id="analysis-run-banner"),
 			html.Div([html.Button("Run Analysis", id="btn-run-analysis", className="btn-run")], className="control-row"),
 			html.Div(
 				[

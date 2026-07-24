@@ -42,6 +42,7 @@ def layout():
 	return html.Div(
 		[
 			html.Div([html.Div("Databases", className="page-title"), html.Div("Enable and inspect SILVA, PR2, NCBI and BOLD sources.", className="page-sub")], className="page-header"),
+			html.Div(id="databases-run-banner"),
 			html.Div([html.Button("Run Databases", id="btn-run-databases", className="btn-run")], className="control-row"),
 			feature_set_bar(),
 			html.Div(
