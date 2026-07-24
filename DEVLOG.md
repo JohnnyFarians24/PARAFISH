@@ -1,5 +1,80 @@
 # DEVLOG
 
+## 2026-07-24 — Task 1 (post-run COI series): the marker came from the FILE NAME, and "OTHER" was not inert — SILVA was cut with COI primers and the nothing it found was reported as an honest no_hits.
+
+**The finding that matters is not the wrong marker. It is what the wrong marker made the
+pipeline DO.** A COI/Leray run on samples named `aptl64b_01` resolved to marker `OTHER`,
+because the marker was inferred solely from a regex over the FASTQ file stem
+(`_infer_marker_from_name` looks for `coi`/`18s`/`its` tokens; that name carries none) and
+the **primer preset — the one explicit statement the user makes about what was amplified —
+was never consulted.** There was no preset→marker map anywhere; only the inverse
+(`MARKER_DEFAULT_PRESET`), and only for 18S.
+
+I expected `OTHER` to be inert — a missing value that would disable the marker filter.
+Measured, it was the opposite. `marker_filter_applies("OTHER", Leray)` returned **True**:
+`OTHER` is absent from `MARKER_LINEAGE`, so it fell past the lineage branch into the "has
+primers" branch, which only asks whether two primer strings are set and cutadapt exists.
+`build_marker_reference` skipped its own documented unknown-marker guard for the same
+reason. **So the run took the COI Leray primers to SILVA and PR2 — small-subunit rRNA
+references — and spent minutes cutting them to a "COI amplicon" that cannot exist there.**
+
+**This is not dead code pretending to be alive.** That was the shape of the previous five
+findings, and it is the wrong lens here. This is a *meaningless operation producing a
+result-shaped output*: cutadapt ran, succeeded, wrote a filtered reference, and VSEARCH
+loaded it and returned assignments-of-nothing. Every layer reported success. The empty
+result then reached `source_status` wearing the word `no_hits` — which says "these taxa are
+not in SILVA", a claim about biology, when the truth was "SILVA was asked a question it
+cannot parse, using a reference we destroyed on the way in". **Had that shredded reference
+returned even one spurious assignment, nothing in the run would have flagged it and I would
+have believed it.** The danger was never the wasted minutes; it was that the output was
+indistinguishable from a real one.
+
+**Applicability was one-directional, and in the wrong phase.** `SOURCE_SUPPORTED_MARKERS`
+held exactly `{"BOLD": {"COI"}}` — a COI source on an rRNA run was `not_applicable`, an rRNA
+source on a COI run was not. And the decision lived in `_reconcile_source_status`, called at
+line 1471, *after* the filter (1293/1321) and the SINTAX load. Adding SILVA/PR2 to the map
+alone would have bought nothing: a post-mortem label with the minutes already spent. The
+rule needed a second seat, before the work; reconciliation stays as the net for sources that
+actually ran.
+
+**Fixed:** `PRESET_MARKER` beside `PRIMER_PRESETS` (with a test that the key sets match, so a
+new preset cannot be added marker-less); `resolve_run_marker()` — preset first, file names as
+fallback, disagreement logged but not fatal; `marker_is_known()` treating `OTHER` and `""`
+alike as "we could not tell", guarding both `marker_filter_applies` and
+`build_marker_reference`; `SOURCE_SUPPORTED_MARKERS` gaining SILVA `{16S,18S}` and PR2 `{18S}`
+(both shipped releases are SSU); `_marker_incompatible()` gating SILVA/PR2/BOLD before any
+work.
+
+**Two design decisions, both reruns of lessons this log already carries.**
+`RunConfig.marker` is serialized but **never read back as input** — it is re-derived on every
+load. A marker frozen before the preset changed would be a second source of truth
+disagreeing with the first, which is the same failure the two `latest_run_dir` collapse (Task
+7) was about. And `_not_applicable` emits **no `key` and no `raw`**: those are precisely the
+fields `_reconcile_source_status` judges a source by, and a verdict about the *marker* must
+not be re-litigated by machinery that judges *results*. Without a key the entry passes
+through untouched, which is what makes it final.
+
+**Addendum — the readout that agreed with nothing.** Checked whether Setup has a marker
+control. It does not; it has a marker *display* — the `Marker` column of the sample table.
+It rendered the literal **`NONE`**, because `sample.get("marker", "OTHER")` never fires its
+default (the key exists holding `None`) and `str(None).upper()` is `"NONE"` — a value the
+pipeline never assigns. A reader takes `NONE` for "not filled in yet", not for "resolved to
+OTHER and about to act on it", which is why a COI run could be configured with nothing on
+screen contradicting it. The DB-recommendation badge was worse: with samples on screen it
+said *"Upload samples to see database recommendations"*, because every marker resolved to
+`OTHER`, `OTHER` was discarded, and the empty set was reported as an empty upload. Both are
+now fed by `resolve_run_marker` — the column shows the run's effective marker (COI, titled
+with where it came from), and the badge names the marker and its recommended sources.
+
+**Left open, deliberately.** `_infer_marker_from_name` still stands, and is still the only
+source when no preset is chosen. There is no marker selector anywhere in the UI, so a run
+configured without a preset falls back to a regex over file names **with no way for the user
+to correct it** — the column now displays that guess honestly, but display is not control.
+Logged, not fixed: it is a separate question from the one measured here.
+
+502 tests pass (+14). Golden: no regressions on fixture, fixture_asv, real — baseline
+confirmed green before the work started, so "no regressions" means something.
+
 ## 2026-07-23 — Tasks 1 & 5 (post-run UI series): dropdowns — the Task 1 diagnosis was REFUTED by the DOM; the real control is a native button.
 
 **The refutation, stated plainly.** Task 1 "fixed" illegible dropdowns by styling react-select

@@ -567,3 +567,33 @@ class MarkerApplicabilityTests(unittest.TestCase):
         self.assertIn("SILVA", joined)
         self.assertIn("não aplicável", joined)
         self.assertNotIn("reduzida ao teu marcador", joined)
+
+
+class SetupMarkerReadoutTests(unittest.TestCase):
+    """Addendum to Task 1: the Setup page's marker readouts agree with the run.
+
+    There is no marker *control* on Setup — only displays. They showed the file-name
+    guess, so a COI/Leray run read "NONE" on screen while the pipeline acted on OTHER.
+    """
+
+    def test_marker_column_never_renders_the_literal_none(self):
+        from ui.components.sample_table import _marker_badge
+
+        self.assertEqual(_marker_badge(None).children, "OTHER")
+        self.assertEqual(_marker_badge("").children, "OTHER")
+
+    def test_marker_column_shows_the_resolved_run_marker(self):
+        from ui.components.sample_table import render_sample_table
+
+        samples = [{"internal_id": "aptl64b_01", "marker": None, "selected": True}]
+        rendered = str(render_sample_table(samples, selectable=True, run_marker="COI"))
+
+        self.assertIn("COI", rendered)
+        self.assertNotIn("NONE", rendered)
+
+    def test_marker_column_falls_back_to_the_file_name_guess(self):
+        """The Samples page has no primer preset to resolve from."""
+        from ui.components.sample_table import render_sample_table
+
+        samples = [{"internal_id": "s_18S_01", "marker": "18S", "selected": True}]
+        self.assertIn("18S", str(render_sample_table(samples, selectable=True)))

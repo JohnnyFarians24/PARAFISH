@@ -11,8 +11,12 @@ def _mode_badge(mode: str):
 	return html.Span(mode_upper, className=f"badge {css_class}")
 
 
-def _marker_badge(marker: str):
-	marker_upper = str(marker).upper()
+def _marker_badge(marker: str, source: str = ""):
+	# ``or "OTHER"``, not ``.get(..., "OTHER")``: the key is always present and often
+	# holds None (no marker token in the file name), so the dict default never fired
+	# and the column rendered the literal "NONE" — a value the pipeline never assigns
+	# and a reader takes for "not filled in yet" rather than "resolved to OTHER".
+	marker_upper = str(marker or "OTHER").upper()
 	css_map = {
 		"COI": "badge-sand",
 		"18S": "badge-amber",
@@ -20,11 +24,18 @@ def _marker_badge(marker: str):
 		"28S": "badge-purple",
 	}
 	css_class = css_map.get(marker_upper, "badge-purple")
-	return html.Span(marker_upper, className=f"badge {css_class}")
+	return html.Span(marker_upper, className=f"badge {css_class}", title=source or None)
 
 
-def render_sample_table(samples: list[dict] | None, selectable: bool = False):
+def render_sample_table(samples: list[dict] | None, selectable: bool = False, run_marker: str = ""):
+	"""``run_marker`` overrides the per-sample guess when the run resolved one.
+
+	The column used to show only what a regex found in each file name. Once the primer
+	preset decides the marker (Task 1), that per-sample guess is no longer what the run
+	acts on, and showing it is showing a number nobody uses.
+	"""
 	rows = samples or []
+	effective_marker = str(run_marker or "").strip()
 	base_headers = ["ID", "Label", "Mode", "Marker", "Status"]
 	# Negative controls and experimental groups are only editable in the selectable
 	# view (where the run is configured); the read-only view just lists the samples.
@@ -50,7 +61,11 @@ def render_sample_table(samples: list[dict] | None, selectable: bool = False):
 				html.Td(sample.get("internal_id", ""), className="table-id"),
 				html.Td(sample.get("display_label", "")),
 				html.Td(_mode_badge(sample.get("mode", "SE"))),
-				html.Td(_marker_badge(sample.get("marker", "OTHER"))),
+				html.Td(
+					_marker_badge(effective_marker, "marcador da run, resolvido a partir do preset de primers")
+					if effective_marker
+					else _marker_badge(sample.get("marker"), "inferido do nome do ficheiro")
+				),
 				html.Td(html.Span(sample.get("status", "pending"), className=f"badge badge-{sample.get('status_color', 'purple')}")),
 			]
 		)

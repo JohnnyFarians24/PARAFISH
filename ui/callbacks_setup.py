@@ -77,37 +77,56 @@ def register_callbacks(app: Any) -> None:
         Output("setup-samples-table", "children"),
         Output("setup-sample-count", "children"),
         Input("store-samples", "data"),
+        Input("setup-primer-preset", "value"),
     )
-    def _render_samples_table(samples_store):
+    def _render_samples_table(samples_store, primer_preset):
+        from databases.reference_filter import resolve_run_marker
+
         samples = _samples_list(samples_store)
         if not samples:
             return html.Div("No samples uploaded.", className="empty-state-sub"), "0"
         selected = sum(1 for s in samples if s.get("selected", True))
-        return render_sample_table(samples, selectable=True), f"{selected} selected / {len(samples)} total"
+        # The column showed the file-name guess, which the run stopped acting on once
+        # the preset decides the marker. On the COI/Leray run it read "NONE" while the
+        # Databases stage went on to treat the run as OTHER and cut SILVA with COI
+        # primers — a readout that agreed with nothing the pipeline did.
+        run_marker, _ = resolve_run_marker(
+            (s.get("marker") for s in samples), {"primer_preset": primer_preset}
+        )
+        return (
+            render_sample_table(samples, selectable=True, run_marker=run_marker),
+            f"{selected} selected / {len(samples)} total",
+        )
 
     @app.callback(
         Output("setup-db-recommendation", "children"),
         Input("store-samples", "data"),
+        Input("setup-primer-preset", "value"),
     )
-    def _db_recommendation(samples_data):
+    def _db_recommendation(samples_data, primer_preset):
+        from databases.reference_filter import resolve_run_marker
+
         samples = (samples_data or {}).get("samples") or []
-        markers = {str(s.get("marker") or "OTHER").upper() for s in samples}
-        markers.discard("OTHER")
-        if not markers:
+        if not samples:
             return "Upload samples to see database recommendations."
-        lines = []
-        if "COI" in markers:
-            lines.append("COI detected — BOLD (primary), NCBI (secondary).")
-        if "18S" in markers:
-            lines.append("18S detected — PR2 (primary), SILVA (secondary).")
-        if "ITS" in markers:
-            lines.append("ITS detected — SILVA (primary), PR2 (secondary).")
-        if "28S" in markers:
-            lines.append("28S detected — SILVA (primary).")
-        unknown = markers - {"COI", "18S", "ITS", "28S"}
-        if unknown:
-            lines.append(f"Unknown markers ({', '.join(unknown)}) — enable all sources.")
-        return " | ".join(lines)
+        run_marker, note = resolve_run_marker(
+            (s.get("marker") for s in samples), {"primer_preset": primer_preset}
+        )
+        recommendation = {
+            "COI": "COI — BOLD (primary), NCBI (secondary). SILVA/PR2 do not index COI.",
+            "18S": "18S — PR2 (primary), SILVA (secondary).",
+            "ITS": "ITS — SILVA (primary), PR2 (secondary).",
+            "28S": "28S — SILVA (primary).",
+        }.get(run_marker)
+        if not recommendation:
+            # Said "Upload samples..." here before, with the samples sitting on screen:
+            # every marker resolved to OTHER, OTHER was discarded, and an empty set was
+            # reported as an empty upload.
+            return (
+                "Marker not identified from the primer preset or the file names — "
+                "pick a primer preset, or enable all sources."
+            )
+        return f"{recommendation} | {note}" if note else recommendation
 
 
     @app.callback(
