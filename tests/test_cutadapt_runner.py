@@ -5,6 +5,7 @@ from __future__ import annotations
 import gzip
 import shutil
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -200,3 +201,80 @@ class PrimerPresetDefaultTests(unittest.TestCase):
         block = source[source.index('id="setup-primer-preset"'):]
         value = re.search(r'value="([^"]*)"', block).group(1)
         self.assertEqual(value, "auto")
+
+
+class DiscardUntrimmedTests(unittest.TestCase):
+    """Reads with no primer match are dropped, not passed through uncut.
+
+    Provenance, not signal: a read cutadapt could not trim cannot be shown to be an
+    amplicon of the targeted region. Measured on the COI/Leray run, 92.32% of input
+    carried the forward primer, so this discards ~7.7% of INPUT — but only 0.19% of the
+    reads that currently reach clustering, because assembly and quality filtering
+    already remove most of the rest.
+    """
+
+    def _command(self, mode, r2=None):
+        import tempfile
+        from unittest.mock import patch
+
+        from core.models import AnalysisMode, AnalysisBranch, RunConfig, Sample, SamplePaths
+        from preprocess.cutadapt_runner import run_cutadapt
+
+        with tempfile.TemporaryDirectory() as d:
+            from pathlib import Path
+
+            r1 = Path(d) / "s_R1.fastq"
+            r1.write_text("@a\nACGT\n+\nIIII\n", encoding="utf-8")
+            r2_path = None
+            if r2:
+                r2_path = Path(d) / "s_R2.fastq"
+                r2_path.write_text("@a\nACGT\n+\nIIII\n", encoding="utf-8")
+            sample = Sample(
+                internal_id="s", display_label="S",
+                paths=SamplePaths(r1=r1, r2=r2_path), mode=mode, marker=Marker.COI,
+            )
+            config = RunConfig(run_id="t", samples=[sample], branch=AnalysisBranch.VSEARCH)
+            config.output_dir = Path(d) / "out"
+            config.vsearch_params["primer_preset"] = "COI_Leray"
+            captured = {}
+
+            def fake_run(command, **kwargs):
+                captured["command"] = command
+                return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+            with patch("preprocess.cutadapt_runner.cutadapt_available", return_value=True), \
+                patch("preprocess.cutadapt_runner.subprocess.run", side_effect=fake_run):
+                run_cutadapt(sample, config)
+            return captured.get("command", [])
+
+    def test_paired_end_discards_untrimmed_pairs(self):
+        from core.models import AnalysisMode
+
+        command = self._command(AnalysisMode.PE, r2=True)
+
+        self.assertIn("--discard-untrimmed", command)
+        self.assertIn("--pair-filter=any", command)
+
+    def test_single_end_discards_untrimmed_reads_without_pair_filter(self):
+        """cutadapt REJECTS --pair-filter in single-end mode. Passing it there made the
+        step fail and fall back to untrimmed passthrough — primers silently kept."""
+        from core.models import AnalysisMode
+
+        command = self._command(AnalysisMode.SE)
+        self.assertIn("--discard-untrimmed", command)
+        self.assertNotIn("--pair-filter=any", command)
+
+    def test_the_flag_is_a_configurable_choice_not_a_literal(self):
+        """A scientific choice is a parameter. Same lesson as MIN_UNIQUE_SIZE — which
+        was decided as 1 and then silently overridden by a 2 typed into the UI."""
+        from unittest.mock import patch
+
+        from core.models import AnalysisMode
+
+        with patch("preprocess.cutadapt_runner.DISCARD_UNTRIMMED", False):
+            self.assertNotIn("--discard-untrimmed", self._command(AnalysisMode.SE))
+
+    def test_default_is_on(self):
+        from core.config import DISCARD_UNTRIMMED
+
+        self.assertTrue(DISCARD_UNTRIMMED)

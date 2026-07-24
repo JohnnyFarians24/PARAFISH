@@ -1,5 +1,77 @@
 # DEVLOG
 
+## 2026-07-24 — Task 5 (measurement) + the bug it exposed: min_unique_size was 2 in every UI run, and the 90→112 rise is RECOVERY, not fragmentation.
+
+**The prediction was wrong, and the reason is worth more than the prediction.** Cutting
+the primers was expected to REDUCE the feature count: OTU1 and OTU2 differed only in the
+primer regions and should have collapsed. Measured, OTU1 vs OTU2 have exactly **11
+differences, all 11 inside the primers** (positions 2, 5, 8, 17, 20 and 344–359 — the
+degenerate W/Y sites of mlCOIintF/jgHCO2198), bodies **100.00% identical**, global
+identity 96.99% against a 97% threshold. They DID collapse — the new run's OTU1 *is*
+that shared body, and across the 90 old OTUs this was the only pair to merge (90 → 89
+distinct bodies). That is −1. The total went **+22**.
+
+**What actually drives 90 → 112 is dereplication, and it is recovery.** Uniques fell
+7 120 → 1 653 while the largest unique rose **284 → 139 938 reads**: before the cut, the
+dominant sequence was shattered across thousands of "uniques" that differed only at the
+primer's degenerate positions — synthesis noise, not biology. With `min_unique_size = 2`
+in force, **45 365 of 179 061 filtered reads (25.3%) were discarded as singletons**;
+after the cut, 8 087 (4.5%). **+37 195 reads entered clustering.** Real low-abundance
+variants that had been scattered below the singleton floor now sum to ≥2 and seed their
+own OTUs. The rise is not new fragmentation — it is variants the primer noise had been
+destroying, coming back.
+
+**Two hypotheses tested and REJECTED, both mine.** (1) A mixture of trimmed and
+untrimmed reads causing new splitting: lengths got *more* homogeneous, not less (modal
+band 90.3% → **96.40%**, and 365−313 = 52 = the two primers exactly). Untrimmed
+survivors are **335 reads, 0.19%**. (2) A propagated-taxonomy estimate of host features
+in the new run: I produced the number (4), then found it was an artifact of my own
+fixed-offset 26/26 matching, which only reconstructs the body of OTUs in the modal band
+— 21 of 112 matched, exactly the 21 in that band. **Withdrawn, not reported as a
+result.** Q2 (host attribution, 61/90 before) stays OPEN: the new run was OOM-killed
+during Databases and has no NCBI/BOLD taxonomy at all. It needs a run that finishes.
+
+**The bug the measurement exposed, unlooked-for.** That `min_unique_size = 2` should not
+have been there. The project decided **1** deliberately — a rare parasite is present as
+few reads, and a floor of 2 deletes exactly that profile — and implemented it as
+`PARAFISH_MIN_UNIQUE_SIZE` with default 1 (core/config.py), delegated properly by
+core/models.py, documented as 1 in .env.example. But
+**`ui/pages/page_setup.py` hard-coded `value=2` into the field**, and
+`callbacks_setup.py` takes the field's value whenever it is non-empty — which it always
+is. A fourth source, the only one anybody was reading. The phylo guard and the two
+`latest_run_dir` again: two places defining one value, and the one nobody knew about
+winning silently. The comment already sitting in callbacks_setup.py ("this line's
+hardcoded 1 disagreed with the runner's hardcoded 2, so the policy depended on the entry
+point") shows this exact bug was fixed once — in the callback, not in the page.
+
+Collapsed onto `MIN_UNIQUE_SIZE`, and the field's help text — which still asserted
+"singletons are overwhelmingly sequencing error" — replaced with what was actually
+measured. `tests/test_setup_defaults_single_source.py` now parses the page and fails if
+ANY Setup field disagrees with its RunConfig default, so the class is closed and not
+just this instance.
+
+**A second divergence, measured and NOT fixed:** `setup-trim-minlen` offers 50 where
+`trimmomatic_params.minlen` is 200. Same shape, but which floor is right is a scientific
+call, so it is recorded in `KNOWN_DIVERGENCES` with a test pinning both values — it
+cannot drift further unnoticed, and it is on the list rather than decided by me.
+
+**`--discard-untrimmed` enabled** (`PARAFISH_DISCARD_UNTRIMMED`, default on). The
+argument is provenance, not signal: a read cutadapt could not trim cannot be shown to be
+an amplicon of the targeted region, and a paper should be able to claim every feature
+derives from a verified amplicon. Costs ~7.7% of INPUT reads (92.32% carried the forward
+primer) but only 0.19% of what reaches clustering — expect read_tracking's input→trimmed
+drop to widen by ~7.7 points, which is the flag working. Independent of
+`min_unique_size = 1`: one keeps genuinely rare amplicons, the other removes material
+that is not a verified amplicon at all.
+
+**One regression caught in the making.** `--pair-filter=any` is rejected outright by
+cutadapt in single-end mode, so the first version made the whole step fail and fall back
+to untrimmed passthrough — primers silently KEPT, the exact opposite of the intent.
+Caught by the existing `test_degenerate_primer_is_removed_from_every_read`, which failed
+with `primers_removed 0.0 != 1.0`. The flag is now paired-end only.
+
+522 tests pass (+8). Golden: no regressions on fixture, fixture_asv, real.
+
 ## 2026-07-24 — Task 1 (post-run COI series): the marker came from the FILE NAME, and "OTHER" was not inert — SILVA was cut with COI primers and the nothing it found was reported as an honest no_hits.
 
 **The finding that matters is not the wrong marker. It is what the wrong marker made the

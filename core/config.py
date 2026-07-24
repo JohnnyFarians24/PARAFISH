@@ -273,6 +273,24 @@ BLAST_TIMEOUT_SEC = _env_int("BLAST_TIMEOUT_SEC", 900)
 # makes it the user's call and not a code edit.
 MIN_UNIQUE_SIZE = _env_int("PARAFISH_MIN_UNIQUE_SIZE", 1)
 
+# Drop reads in which cutadapt found no primer, instead of passing them through uncut.
+#
+# On by default, and the reason is provenance rather than signal. A read with no primer
+# match cannot be shown to be an amplicon of the targeted region — it may be off-target
+# product, adapter-dimer, or a read whose 5' end was damaged. Keeping it means a feature
+# in the results table that no one can attest came from the assay that was run.
+#
+# Measured on the COI/Leray run (aptl64b_01, 207 528 reads): 92.32% carried the forward
+# primer, so cutadapt discards ~7.7% of INPUT reads here. The effect on the RESULT is
+# far smaller — only 335 of 179 054 filtered reads (0.19%) currently survive to
+# clustering at an untrimmed length, because PEAR assembly and quality filtering already
+# remove most of the rest. Expect read_tracking's input->trimmed drop to widen by ~7.7
+# points; that is this flag working, not a regression.
+#
+# Independent of MIN_UNIQUE_SIZE, and not in tension with it: that one keeps genuinely
+# rare amplicons, this one removes material that is not a verified amplicon at all.
+DISCARD_UNTRIMMED = _env_bool("PARAFISH_DISCARD_UNTRIMMED", True)
+
 # Use a LOCAL BLAST database instead of NCBI's public remote service. Off by default:
 # the public remote nt is the source the project's supervisors asked for, and it is what
 # a reviewer can reproduce without our filesystem. A local db is the emergency exit for

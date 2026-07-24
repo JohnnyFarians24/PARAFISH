@@ -20,7 +20,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-from core.config import CUTADAPT_PATH
+from core.config import CUTADAPT_PATH, DISCARD_UNTRIMMED
 from core.models import AnalysisMode, RunConfig, Sample, StepOutput
 
 try:  # the preset table lives with the length-strip that consumes it too
@@ -134,6 +134,10 @@ def run_cutadapt(sample: Sample, config: RunConfig) -> StepOutput:
     threads = int((getattr(config, "vsearch_params", {}) or {}).get("threads") or 4)
 
     command = [CUTADAPT_PATH, "-j", str(threads), "--json", str(report_path)]
+    if DISCARD_UNTRIMMED:
+        # A read with no primer match cannot be shown to be an amplicon of the targeted
+        # region, so it is dropped rather than carried through uncut.
+        command += ["--discard-untrimmed"]
     is_pe = sample.mode == AnalysisMode.PE and sample.paths.r2 is not None
     if is_pe:
         r1_out = output_dir / f"{sample.internal_id}_R1_primer.fastq.gz"
@@ -142,6 +146,12 @@ def run_cutadapt(sample: Sample, config: RunConfig) -> StepOutput:
             command += ["-g", forward]
         if reverse:
             command += ["-G", reverse]
+        if DISCARD_UNTRIMMED:
+            # Paired-end only — cutadapt rejects --pair-filter outright in single-end
+            # mode, which made the whole step fall back to untrimmed passthrough.
+            # "any" drops the pair unless the amplicon is verified at BOTH ends, which
+            # is the claim --discard-untrimmed exists to let the study make.
+            command += ["--pair-filter=any"]
         command += ["-o", str(r1_out), "-p", str(r2_out), str(sample.paths.r1), str(sample.paths.r2)]
         files: Dict[str, Optional[Path]] = {"r1_primer": r1_out, "r2_primer": r2_out, "log": log_path, "report": report_path}
     else:

@@ -5,6 +5,8 @@ from __future__ import annotations
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from core.config import MIN_UNIQUE_SIZE
+
 
 def _param_label(text: str, tooltip: str):
     return html.Div(
@@ -182,9 +184,16 @@ def _analysis_card():
                                     _param_label(
                                         "Min unique size",
                                         "(VSEARCH) Drop unique sequences seen fewer than this many times before clustering. "
-                                        "Singletons are overwhelmingly sequencing error and produce spurious OTUs. Set to 1 to keep them.",
+                                        "The default is 1 — singletons are KEPT. A rare parasite is present as few reads, and "
+                                        "a floor of 2 deletes exactly that profile before clustering ever sees it; measured on "
+                                        "this data it discarded a quarter of the library. Raise it only to buy back clustering "
+                                        "time on a large host-dominated study, and read unmapped_reads to see what it cost.",
                                     ),
-                                    dcc.Input(id="setup-vsearch-minsize", type="number", value=2, min=1, max=10, step=1, className="dash-input"),
+                                    # Not a literal: this field is what a run actually uses, and a number typed
+                                    # here silently outranked PARAFISH_MIN_UNIQUE_SIZE. The 2 that used to sit
+                                    # here is why every UI run clustered with singletons dropped while the
+                                    # project's documented, deliberate default was 1.
+                                    dcc.Input(id="setup-vsearch-minsize", type="number", value=MIN_UNIQUE_SIZE, min=1, max=10, step=1, className="dash-input"),
                                 ]
                             ),
                             _param_label(
