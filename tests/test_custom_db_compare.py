@@ -12,20 +12,26 @@ from databases.custom_db import CustomDBConfig, blast_tools_available, detect_fa
 
 
 class DetectKindTests(unittest.TestCase):
+    # These fixtures used a 4 bp "ACGT" as a stand-in body while detect_fasta_kind read
+    # only headers. Sequence validation now applies, and a 4 bp subject is unusable by
+    # blastn (word size >= 11) — so the placeholder is grown to something a user could
+    # actually upload. The assertions below are unchanged.
+    BODY = "ACGT" * 20
+
     def _write(self, path: Path, text: str) -> Path:
         path.write_text(text, encoding="utf-8")
         return path
 
     def test_plain_fasta_is_blast_kind(self):
         with tempfile.TemporaryDirectory() as d:
-            p = self._write(Path(d) / "ref.fasta", ">seq1 Genus species\nACGT\n>seq2 Other taxon\nTTTT\n")
+            p = self._write(Path(d) / "ref.fasta", f">seq1 Genus species\n{self.BODY}\n>seq2 Other taxon\n{self.BODY}\n")
             kind, error = detect_fasta_kind(p)
             self.assertEqual(kind, "blast")
             self.assertEqual(error, "")
 
     def test_sintax_fasta_is_sintax_kind(self):
         with tempfile.TemporaryDirectory() as d:
-            p = self._write(Path(d) / "ref.fasta", ">seq1;tax=d:Eukaryota,g:Diplostomum,s:Diplostomum spathaceum;\nACGT\n")
+            p = self._write(Path(d) / "ref.fasta", f">seq1;tax=d:Eukaryota,g:Diplostomum,s:Diplostomum spathaceum;\n{self.BODY}\n")
             kind, error = detect_fasta_kind(p)
             self.assertEqual(kind, "sintax")
 
@@ -38,7 +44,7 @@ class DetectKindTests(unittest.TestCase):
 
     def test_config_validate_accepts_plain_fasta(self):
         with tempfile.TemporaryDirectory() as d:
-            p = self._write(Path(d) / "ref.fasta", ">seq1 Genus species\nACGT\n")
+            p = self._write(Path(d) / "ref.fasta", f">seq1 Genus species\n{self.BODY}\n")
             cfg = CustomDBConfig(p)
             valid, error = cfg.validate()
             self.assertTrue(valid, error)
@@ -184,3 +190,152 @@ class RealBlastTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SequenceValidationTests(unittest.TestCase):
+    """Task 3(a): the upload validates SEQUENCES, not just headers.
+
+    detect_fasta_kind only ever read lines starting with ">", so a file with valid
+    headers and protein, empty or junk bodies passed the upload and blew up a whole
+    stage later inside makeblastdb — where the user can no longer fix it.
+    """
+
+    def _kind(self, text: str):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "ref.fasta"
+            path.write_text(text, encoding="utf-8")
+            return detect_fasta_kind(path)
+
+    OK = "ACGT" * 20
+
+    def test_protein_fasta_is_rejected_at_upload(self):
+        kind, error = self._kind(">p1 some protein\nMKWVTFISLLLLFSSAYSRGV\n")
+
+        self.assertEqual(kind, "")
+        self.assertIn("nucleótidos", error)
+
+    def test_empty_sequence_body_is_rejected(self):
+        kind, error = self._kind(f">s1\n\n>s2\n{self.OK}\n")
+
+        self.assertEqual(kind, "")
+        self.assertIn("não tem bases", error)
+
+    def test_headers_with_no_sequence_at_all_are_rejected(self):
+        kind, error = self._kind(">s1\n>s2\n")
+
+        self.assertEqual(kind, "")
+        self.assertIn("não tem bases", error)
+
+    def test_junk_characters_are_rejected(self):
+        kind, error = self._kind(">s1\n!!!???###\n")
+
+        self.assertEqual(kind, "")
+        self.assertIn("nucleótidos", error)
+
+    def test_a_sequence_below_the_floor_is_rejected(self):
+        kind, error = self._kind(">s1\nACGTACGT\n")
+
+        self.assertEqual(kind, "")
+        self.assertIn("mínimo", error)
+
+    def test_a_peptide_of_only_iupac_letters_is_caught_by_composition(self):
+        """K, W, V, S, Y, R, M are all valid IUPAC codes — the alphabet check alone
+        would wave this through."""
+        kind, error = self._kind(">s1\n" + "RYKMSWBDHV" * 8 + "\n")
+
+        self.assertEqual(kind, "")
+        self.assertIn("A/C/G/T", error)
+
+    def test_valid_dna_still_passes(self):
+        self.assertEqual(self._kind(f">s1\n{self.OK}\n"), ("blast", ""))
+
+    def test_wrapped_sequences_are_joined_before_the_length_check(self):
+        """60-column FASTA is the norm; measuring line by line would reject all of it."""
+        wrapped = ">s1\n" + "\n".join("ACGT" * 5 for _ in range(4)) + "\n"
+        self.assertEqual(self._kind(wrapped), ("blast", ""))
+
+    def test_ambiguity_codes_and_gaps_are_accepted(self):
+        """A masked or aligned reference is still DNA. The validator must not overreach."""
+        self.assertEqual(self._kind(">s1\n" + "ACGTN" * 15 + "---\n")[0], "blast")
+
+    def test_sintax_reference_is_validated_too(self):
+        kind, _ = self._kind(f">s1;tax=d:Eukaryota,g:Gadus,s:Gadus_morhua;\n{self.OK}\n")
+        self.assertEqual(kind, "sintax")
+        self.assertEqual(self._kind(">s1;tax=d:Eukaryota;\nMKWVTFISLLLL\n")[0], "")
+
+
+class ZeroByteIsNotFailureTests(unittest.TestCase):
+    """Task 3(b): with BLAST, zero hits legitimately writes a zero-byte table.
+
+    Observed on a real run: custom_blast_besthit.csv was complete and correct, every
+    feature honestly marked "None", and source_status said `failed` — because the
+    reconciliation judged by the raw table's SIZE. The evidence for failure lives in
+    the log, where blastn prints "(Severe Error) ... search failed" while exiting 0.
+    """
+
+    def _status(self, raw_text: str, log_text: str):
+        from databases.taxonomy_runner import _reconcile_source_status
+
+        with tempfile.TemporaryDirectory() as d:
+            raw = Path(d) / "custom_blast_raw.tsv"
+            raw.write_text(raw_text, encoding="utf-8")
+            log = Path(d) / "custom_blast.log"
+            log.write_text(log_text, encoding="utf-8")
+            entry = {"source": "Base customizada (BLAST)", "status": "no_hits",
+                     "detail": "0/112", "key": "CUSTOM", "raw": raw, "log": log}
+            return _reconcile_source_status([entry], {}, 112, marker="COI")[0]
+
+    def test_empty_output_with_a_clean_log_is_no_hits(self):
+        out = self._status("", "Custom BLAST: 0/112 OTUs com match.\n")
+
+        self.assertEqual(out["status"], "no_hits")
+
+    def test_empty_output_with_a_blast_error_in_the_log_is_failed(self):
+        out = self._status("", "Error: (Severe Error) Blast search error: search failed\n")
+
+        self.assertEqual(out["status"], "failed")
+        self.assertIn("search failed", out["detail"])
+
+    def test_a_populated_table_is_still_no_hits_when_nothing_was_assigned(self):
+        row = "OTU1\tsub\t99\t300\t0\t0\t1\t300\t1\t300\t1e-50\t500\t100\n"
+        self.assertEqual(self._status(row, "ok\n")["status"], "no_hits")
+
+    def test_sources_without_a_log_keep_the_size_heuristic(self):
+        """NCBI and BOLD pass no log here; their existing behaviour must not move."""
+        from databases.taxonomy_runner import _reconcile_source_status
+
+        with tempfile.TemporaryDirectory() as d:
+            raw = Path(d) / "bold.parquet"
+            raw.write_text("", encoding="utf-8")
+            entry = {"source": "BOLD", "status": "ok", "detail": "x", "key": "BOLD", "raw": raw}
+            self.assertEqual(_reconcile_source_status([entry], {}, 7, marker="COI")[0]["status"], "failed")
+
+
+class ExtensionGatesAgreeTests(unittest.TestCase):
+    """Task 3(c): three gates guarded one upload and disagreed about .fna."""
+
+    def test_fna_is_accepted_by_every_gate(self):
+        from ui.callbacks_databases import _is_supported_custom_db_filename
+
+        for name in ("ref.fna", "ref.fna.gz", "ref.fasta", "ref.fa", "ref.fasta.gz", "ref.fa.gz"):
+            with self.subTest(name=name):
+                self.assertTrue(_is_supported_custom_db_filename(name))
+
+    def test_the_validator_agrees_with_the_ui_gate(self):
+        from ui.callbacks_databases import SUPPORTED_CUSTOM_DB_SUFFIXES
+
+        with tempfile.TemporaryDirectory() as d:
+            for suffix in SUPPORTED_CUSTOM_DB_SUFFIXES:
+                if suffix.endswith(".gz"):
+                    continue
+                path = Path(d) / f"ref{suffix}"
+                path.write_text(">s1\n" + "ACGT" * 20 + "\n", encoding="utf-8")
+                ok, error = CustomDBConfig(path).validate()
+                with self.subTest(suffix=suffix):
+                    self.assertTrue(ok, error)
+
+    def test_an_unsupported_extension_is_still_refused(self):
+        from ui.callbacks_databases import _is_supported_custom_db_filename
+
+        self.assertFalse(_is_supported_custom_db_filename("ref.txt"))
+        self.assertFalse(_is_supported_custom_db_filename("ref.xlsx"))

@@ -10,6 +10,7 @@ from dash.exceptions import PreventUpdate
 
 from core.config import MIN_UNIQUE_SIZE
 from core.models import PhyloMode
+from ui.callbacks_databases import SUPPORTED_CUSTOM_DB_SUFFIXES, _is_supported_custom_db_filename
 from ui.components.sample_table import render_sample_table
 from ui.runtime_state import build_run_config, decode_upload_content, enum_from_value, resolve_project_data, serialize_run_config, slugify
 
@@ -142,9 +143,11 @@ def register_callbacks(app: Any) -> None:
 
         if not contents or not filename:
             raise PreventUpdate
-        name = (filename or "").lower()
-        if not name.endswith((".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz")):
-            return html.Div("Unsupported file. Please use .fasta, .fa or .fasta.gz.", className="badge badge-amber"), no_update
+        if not _is_supported_custom_db_filename(filename):
+            return html.Div(
+                f"Unsupported file. Use {', '.join(SUPPORTED_CUSTOM_DB_SUFFIXES)}.",
+                className="badge badge-amber",
+            ), no_update
         project = resolve_project_data(project_data)
         project_name = project.get("project_name") or "project"
         db_dir = Path("projects") / slugify(project_name) / "custom_dbs"

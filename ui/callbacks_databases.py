@@ -100,9 +100,15 @@ def _load_hits_frame(db_outputs: dict, run_output_dir, feature_set: str, min_ide
     return frame, None
 
 
+# Kept identical to the Setup page's gate and to CustomDBConfig.validate. Three gates
+# guarded this one upload and they did not agree: .fna passed Setup and the validator but
+# was rejected here, so the same file was accepted or refused depending on which page it
+# was dropped on. .fna is what NCBI hands you when you download a nucleotide FASTA.
+SUPPORTED_CUSTOM_DB_SUFFIXES = (".fasta", ".fa", ".fna", ".fasta.gz", ".fa.gz", ".fna.gz")
+
+
 def _is_supported_custom_db_filename(filename: str) -> bool:
-    name = (filename or "").lower()
-    return name.endswith((".fasta", ".fa", ".fasta.gz", ".fa.gz"))
+    return (filename or "").lower().endswith(SUPPORTED_CUSTOM_DB_SUFFIXES)
 
 
 def _find_consensus_csv(db_outputs: dict, run_output_dir, feature_set: str = "otu") -> str | None:

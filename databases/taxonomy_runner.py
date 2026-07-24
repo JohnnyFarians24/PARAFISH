@@ -19,7 +19,7 @@ from core.models import StepOutput
 from core.preflight import available_memory_bytes, sintax_memory_required
 
 from databases.bold_db import BOLDConfig, run_boldigger as run_boldigger_step
-from databases.ncbi_db import NCBIConfig, run_blast
+from databases.ncbi_db import BLAST_FAILURE_SIGNATURES, NCBIConfig, run_blast
 from databases.pr2_db import PR2Config
 from databases.reference_filter import build_marker_reference
 from databases.silva_db import SILVAConfig
@@ -718,6 +718,26 @@ SOURCE_SUPPORTED_MARKERS = {
 }
 
 
+def _log_failure_signature(log_path) -> str:
+	"""The BLAST failure phrase present in ``log_path``, or ``""``.
+
+	Reuses ``ncbi_db.BLAST_FAILURE_SIGNATURES`` rather than restating them, because the
+	tool being judged is the same blastn: it exits 0 after printing "(Severe Error) ...
+	search failed", so the exit code says nothing and the log says everything.
+	"""
+	if not log_path:
+		return ""
+	try:
+		text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+	except OSError:
+		return ""
+	lowered = text.lower()
+	for signature in BLAST_FAILURE_SIGNATURES:
+		if str(signature).lower() in lowered:
+			return str(signature)
+	return ""
+
+
 def _marker_incompatible(source_key: str, marker) -> bool:
 	"""True when ``source_key``'s reference cannot carry ``marker``.
 
@@ -787,6 +807,7 @@ def _reconcile_source_status(
 	for entry in source_status:
 		key = str(entry.pop("key", "") or "").upper()
 		raw = entry.pop("raw", None)
+		log = entry.pop("log", None)
 		status = entry.get("status")
 		# Judge every source that ran, not only the ones claiming "ok". NCBI reports
 		# "ok if hits > 0 else no_hits" up front, so a remote BLAST that died outright
@@ -798,7 +819,19 @@ def _reconcile_source_status(
 			assigned = counts.get(key, 0)
 			supported = SOURCE_SUPPORTED_MARKERS.get(key)
 			incompatible = bool(supported and marker_upper and marker_upper not in supported)
-			produced_output = bool(raw and Path(raw).exists() and Path(raw).stat().st_size > 0)
+			# With BLAST, zero hits legitimately produces a ZERO-BYTE table: the search ran,
+			# matched nothing, and wrote nothing. So an empty file cannot mean "failed" on
+			# its own — custom BLAST reported `failed` on a run whose besthit CSV was
+			# complete and correct, every feature honestly marked "None". The evidence for
+			# failure is in the LOG, where blastn prints "(Severe Error) ... search failed"
+			# while still exiting 0; that is the same signal ncbi_db already judges by.
+			# File size is used only as a fallback, for sources that ship no log.
+			failure = _log_failure_signature(log)
+			produced_output = (
+				not failure
+				if log is not None
+				else bool(raw and Path(raw).exists() and Path(raw).stat().st_size > 0)
+			)
 			if assigned:
 				entry["status"] = "ok"
 				entry["detail"] = f"{assigned}/{feature_total} features com taxonomia · {entry.get('detail', '')}".strip(" ·")
@@ -813,7 +846,11 @@ def _reconcile_source_status(
 				entry["detail"] = f"correu mas não atribuiu taxonomia a nenhuma das {feature_total} features"
 			else:
 				entry["status"] = "failed"
-				entry["detail"] = "não produziu resultado utilizável (saída vazia ou ausente)"
+				entry["detail"] = (
+					f"a ferramenta reportou um erro: {failure}"
+					if failure
+					else "não produziu resultado utilizável (saída vazia ou ausente)"
+				)
 		reconciled.append(entry)
 	return reconciled
 
@@ -1433,6 +1470,11 @@ def run_taxonomy_pipeline(
 					"detail": f"{matched_n}/{total_n} OTUs com correspondência",
 					"key": "CUSTOM",
 					"raw": custom_result.files.get("custom_blast_raw_tsv"),
+					# The log, not the raw table's size, decides failure vs absence: a
+					# clean blastn that matched nothing writes a 0-byte table, which the
+					# size heuristic called "failed" on a run whose besthit CSV was
+					# complete with every feature honestly marked "None".
+					"log": custom_result.files.get("log"),
 				})
 			else:
 				metrics["custom_error"] = 1.0

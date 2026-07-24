@@ -95,18 +95,82 @@ def reference_labels(reference_fasta: Path) -> Dict[str, str]:
     return labels
 
 
+# IUPAC nucleotide codes, plus the gap characters an aligned reference may carry.
+# Anything else is not DNA: F, I, L, P, E, Q and friends are protein-only, and their
+# presence is what tells a peptide FASTA from a nucleotide one.
+_NUCLEOTIDE_ALPHABET = set("ACGTUNRYSWKMBDHV-.acgtunryswkmbdhv")
+_UNAMBIGUOUS = set("ACGTUacgtu")
+
+# A reference sequence shorter than this cannot be a useful blastn subject: megablast
+# seeds on 28-base words and even blastn's default word size is 11, so a 4 bp "sequence"
+# produces a database that silently matches nothing.
+MIN_REFERENCE_LENGTH = 50
+
+# A peptide can slip past the alphabet check when every one of its letters happens to be
+# an IUPAC nucleotide code — K, W, V, S, Y, R, G, A, M, D, H, N all are. What it cannot do
+# is look like DNA by composition. Half is deliberately loose: a reference with masked or
+# padded regions is still DNA, and rejecting it would be the validator overreaching. A
+# peptide made only of IUPAC letters scores near zero, so the two are not close.
+_MIN_UNAMBIGUOUS_FRACTION = 0.5
+
+
+def _sequence_error(seq_id: str, index: int, sequence: str) -> str:
+    """Why this record's SEQUENCE is unusable, or ``""``.
+
+    The upload used to look only at lines starting with ``>``: a file with valid headers
+    and protein, empty or junk sequence lines passed validation and failed a whole stage
+    later, inside ``makeblastdb``, where the user could no longer act on it.
+    """
+    if not sequence:
+        return f"A sequência #{index} ('{seq_id}') não tem bases — o cabeçalho existe mas o corpo está vazio."
+    invalid = {char for char in sequence if char not in _NUCLEOTIDE_ALPHABET}
+    if invalid:
+        sample = "".join(sorted(invalid)[:6])
+        return (
+            f"A sequência #{index} ('{seq_id}') contém caracteres que não são nucleótidos "
+            f"('{sample}'). Uma base customizada tem de ser de DNA — uma FASTA de proteína "
+            f"não pode ser comparada com blastn."
+        )
+    # Gaps are alignment padding, not bases: they belong in neither side of this ratio,
+    # and counting them as "not A/C/G/T" would reject an aligned reference for being aligned.
+    bases = [char for char in sequence if char not in "-."]
+    if not bases:
+        return f"A sequência #{index} ('{seq_id}') é só gaps, sem uma única base."
+    unambiguous = sum(1 for char in bases if char in _UNAMBIGUOUS)
+    if unambiguous < _MIN_UNAMBIGUOUS_FRACTION * len(bases):
+        return (
+            f"A sequência #{index} ('{seq_id}') tem só {100 * unambiguous / len(bases):.0f}% "
+            f"de A/C/G/T. Não parece DNA."
+        )
+    if len(bases) < MIN_REFERENCE_LENGTH:
+        return (
+            f"A sequência #{index} ('{seq_id}') tem {len(bases)} bases; o mínimo é "
+            f"{MIN_REFERENCE_LENGTH}. Sequências mais curtas não produzem alinhamentos fiáveis."
+        )
+    return ""
+
+
 def detect_fasta_kind(path: Path) -> tuple[str, str]:
     """Return ``(kind, error)`` where kind is ``"sintax"``, ``"blast"`` or ``""``.
 
     ``"sintax"`` when every record header carries ``;tax=``; ``"blast"`` for any
     other well-formed FASTA. ``error`` is a user-facing message when the file is
-    not a usable FASTA at all.
+    not a usable FASTA at all — including when its SEQUENCES are unusable, which this
+    used to ignore entirely.
     """
     record_count = 0
     missing_tax = 0
     seen_ids: set[str] = set()
     duplicate = ""
     first = True
+    current_id = ""
+    current_seq: List[str] = []
+
+    def _flush() -> str:
+        if not record_count:
+            return ""
+        return _sequence_error(current_id, record_count, "".join(current_seq).strip())
+
     try:
         with _open_maybe_gzip(path) as handle:
             for line in handle:
@@ -115,7 +179,11 @@ def detect_fasta_kind(path: Path) -> tuple[str, str]:
                         return "", "Ficheiro não parece ser FASTA (a primeira linha não começa com '>')."
                     first = False
                 if not line.startswith(">"):
+                    current_seq.append(line.strip())
                     continue
+                error = _flush()
+                if error:
+                    return "", error
                 record_count += 1
                 header = line[1:].strip()
                 seq_id = _sequence_id(header)
@@ -126,6 +194,10 @@ def detect_fasta_kind(path: Path) -> tuple[str, str]:
                 seen_ids.add(seq_id)
                 if ";tax=" not in header:
                     missing_tax += 1
+                current_id, current_seq = seq_id, []
+            error = _flush()
+            if error:
+                return "", error
     except (OSError, UnicodeDecodeError) as exc:
         return "", f"Não foi possível ler o ficheiro: {exc}"
 
@@ -154,7 +226,7 @@ class CustomDBConfig:
             return False, f"Base customizada não encontrada: {self.db_path}"
         suffix = self.db_path.suffix.lower()
         if suffix not in {".fasta", ".fa", ".fna", ".gz"}:
-            return False, f"Formato não suportado: {suffix}. Usa .fasta, .fa ou .fasta.gz"
+            return False, f"Formato não suportado: {suffix}. Usa .fasta, .fa, .fna (ou .gz de qualquer um)"
         kind, error = detect_fasta_kind(self.db_path)
         if not kind:
             return False, error
