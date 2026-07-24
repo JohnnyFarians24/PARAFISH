@@ -1,5 +1,40 @@
 # DEVLOG
 
+## 2026-07-24 — KNOWN PROPERTY OF THE NET: `golden.py check` never re-runs the pipeline. "No regressions" means the frozen files have not changed — NOT that the code still produces them.
+
+Found while deciding whether raising PEAR's `min_overlap` was safe. It is not, and the
+way it is not-safe is the point: the fixture holds 83 merges with sub-50 bp overlap and
+`_real` holds 1 649 (2.0% each), so the change would alter real output — **and
+`golden.py check` would have stayed green through it.**
+
+`check` reads a stored run directory (`runs/_fixture/current`) and diffs it against
+`golden/fixture/`. Both sides are artifacts frozen in the past. Nothing in the loop
+executes the pipeline, so **no change to code or parameters can make this check fail by
+itself.** It fails only when someone re-runs the pipeline into that directory first —
+which the discipline assumes and the tool does not enforce.
+
+**The consequence, stated so the phrase cannot be misread again:** "golden: no
+regressions" in any entry of this log means *the frozen files still match the run that
+was last written beside them*. It does **not** mean the current code reproduces them. A
+parameter changed without a re-run leaves the contract describing a pipeline that no
+longer exists, with nothing to announce it.
+
+Sixth incarnation of "looks alive, does nothing" in this project, and **the first in the
+verification instrument rather than in the code being verified.** Sibling of what check
+(f) of `verify.py` closed: there, internal coherence was not enough — a table can agree
+with itself and still be wrong about the run. Here, faithful comparison is not enough —
+two files can match perfectly and both be stale.
+
+Nothing was silently wrong because of this: the min_overlap change was NOT made, and the
+MINLEN change was verified safe by measuring the frozen inputs directly (zero pairs under
+200 bp in either dataset) rather than by trusting the green.
+
+**On the list, not now: a `--rerun` verification mode** that executes the pipeline over
+the fixture and diffs the result against the frozen files. Cheap on the fixture (seconds,
+26 MB) and expensive on `_real`. That would give the fixture a strong guarantee and leave
+`_real` with the current weak one — **and the difference between the two would be
+documented instead of implicit**, which is most of the value.
+
 ## 2026-07-24 — trim-minlen resolved DOWN at 50, against the first instinct, because the measurement said 200 was the wrong instrument. min_overlap is the right one, and it is OPEN.
 
 The second divergence found beside `min_unique_size`: Setup offered 50, `RunConfig` said
