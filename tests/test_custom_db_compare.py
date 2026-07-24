@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 from analysis.custom_db_compare import NO_MATCH_LABEL, build_custom_comparison, write_detection_table
-from databases.custom_db import CustomDBConfig, blast_tools_available, detect_fasta_kind, reference_label, run_custom_blast
+from databases.custom_db import MIN_REFERENCE_LENGTH, CustomDBConfig, blast_tools_available, detect_fasta_kind, reference_label, run_custom_blast
 
 
 class DetectKindTests(unittest.TestCase):
@@ -237,6 +237,33 @@ class SequenceValidationTests(unittest.TestCase):
 
         self.assertEqual(kind, "")
         self.assertIn("mínimo", error)
+
+    def test_the_length_floor_value_itself_is_pinned(self):
+        """Written separately from the boundary test below, and deliberately literal.
+        The boundary test derives its inputs FROM the constant, so it proves the
+        comparison is < and not <=, but would pass just as happily with the floor at
+        100. This one pins the number: 50 is the smallest reference worth keeping when
+        blastn seeds on 11-base words and megablast on 28. Changing it is a scientific
+        decision and should have to change a test."""
+        self.assertEqual(MIN_REFERENCE_LENGTH, 50)
+
+    def test_the_length_floor_is_pinned_at_its_exact_boundary(self):
+        """Without this, MIN_REFERENCE_LENGTH could be 10 or 100 and the test above
+        would still pass — the floor would have no proven value and the < / <= choice
+        would be unproven. 50 is the smallest reference blastn can seed on usefully."""
+        just_under = ("ACGTACGTAC" * 10)[: MIN_REFERENCE_LENGTH - 1]
+        exactly = ("ACGTACGTAC" * 10)[:MIN_REFERENCE_LENGTH]
+
+        self.assertEqual(self._kind(f">s1\n{just_under}\n")[0], "")
+        self.assertEqual(self._kind(f">s1\n{exactly}\n"), ("blast", ""))
+
+    def test_gaps_do_not_count_towards_the_length_floor(self):
+        """Gaps are alignment padding, not bases. Padding a 49-base record with dashes
+        must not buy it past a floor that exists to guarantee alignable sequence."""
+        short = ("ACGTACGTAC" * 10)[: MIN_REFERENCE_LENGTH - 1]
+
+        self.assertEqual(self._kind(f">s1\n{short}-----\n")[0], "")
+        self.assertEqual(self._kind(f">s1\n{short}A-----\n")[0], "blast")
 
     def test_a_peptide_of_only_iupac_letters_is_caught_by_composition(self):
         """K, W, V, S, Y, R, M are all valid IUPAC codes — the alphabet check alone

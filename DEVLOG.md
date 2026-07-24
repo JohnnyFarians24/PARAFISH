@@ -1,5 +1,54 @@
 # DEVLOG
 
+## 2026-07-24 — RULE: changing a test's FIXTURE is not changing its ASSERTION. And a floor with no boundary test has no proven value.
+
+**The rule, because the question will come up again.** Task 3 added sequence validation
+to the custom-DB upload, and three existing `DetectKindTests` broke: they used a 4 bp
+`ACGT` body as a placeholder while `detect_fasta_kind` read only headers. The bodies were
+grown to 80 bp and the tests passed again — which is the shape of the worst habit in
+testing, so it needs to be told apart from it explicitly.
+
+> **If the ASSERTION changed, suspect it. If only the INPUT changed and the assertion
+> still demands the same thing, it was the fixture that was wrong.**
+
+Here the assertions (`kind == "blast"`, `kind == "sintax"`) are untouched. What changed is
+that the input became something a user could actually upload: a 4 bp subject can never
+produce a blastn hit — the word size is 11, and megablast's is 28 — so the fixture was
+exercising a scenario that cannot occur. It passed only because no validation existed;
+once validation existed, 4 bp stopped being valid input at all. Weakening an assertion
+lets the bug through; correcting an impossible fixture does not.
+
+**And the reverse, which the review caught and I had not done.** The new floor
+(`MIN_REFERENCE_LENGTH = 50`) had exactly one test, using an 8 bp sequence. The constant
+could have been 10 or 100 and it would still have passed: **the floor had no proven
+value, and the `<` versus `<=` choice was unproven.** It surfaced only because growing
+those fixtures raised the question of where the boundary actually is.
+
+Added: 49 rejected / 50 accepted, gaps excluded from the count (padding a 49-base record
+with dashes must not buy it past a floor that exists to guarantee alignable sequence).
+**And a second, deliberately literal test pinning the value 50 itself** — because the
+boundary test derives its inputs *from* the constant, so it proves the comparison and not
+the number. Verified by mutation: with the constant moved to 100, the first version still
+passed; with the value pin added, 11 tests fail. A scientific choice should have to change
+a test.
+
+## 2026-07-24 — DECIDED (Task 4f, ahead of the work): the SINTAX columns are ALWAYS present, even when no SINTAX source ran.
+
+After Task 1, a COI run legitimately has SILVA and PR2 marked `not_applicable`, so the
+three `sintax_*` columns are empty in the normal case rather than the exceptional one.
+The options were to omit them when no SINTAX source participated, or to carry a reason in
+the file.
+
+**Neither: keep them, always.** These tables are a deliverable other people will process
+with their own scripts, and a schema that changes shape between runs breaks every one of
+them — silently, since a missing column reads as a missing value. Schema stability is
+worth more than self-explanation.
+
+The explanation is not lost, and does not need to live in this file: `source_status.csv`
+already records `skipped` / `not_applicable` per source **with the reason**, and the
+run_config records which sources were requested. What is missing is the *link* being
+documented, not a column disappearing.
+
 ## 2026-07-24 — KNOWN PROPERTY OF THE NET: `golden.py check` never re-runs the pipeline. "No regressions" means the frozen files have not changed — NOT that the code still produces them.
 
 Found while deciding whether raising PEAR's `min_overlap` was safe. It is not, and the
