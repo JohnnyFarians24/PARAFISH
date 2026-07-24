@@ -1,5 +1,48 @@
 # DEVLOG
 
+## 2026-07-24 — trim-minlen resolved DOWN at 50, against the first instinct, because the measurement said 200 was the wrong instrument. min_overlap is the right one, and it is OPEN.
+
+The second divergence found beside `min_unique_size`: Setup offered 50, `RunConfig` said
+200, so a run's read-length floor depended on whether it started from the UI or the CLI.
+The instinct — mine and the reviewer's — was to align UP at 200. The reasoning was sound:
+the Leray amplicon is ~313 bp and reads are 2×300, so a read trimmed to 50 leaves only
+~11 bp of overlap at the merge, and a merge with 11 bp of support produces a sequence
+that does not exist. On a detection platform that presents as a novel taxon — a false
+positive wearing the clothes of a discovery.
+
+**Measured on the COI run, 200 costs six times what it buys:**
+
+| | |
+|---|---|
+| merges lost to MINLEN=200 | **14 536 (8.00% of all merges)** |
+| …that are valid 300–330 bp amplicons | **92.82%** |
+| …whose shorter mate was 175–199 bp (missed by a hair) | 50.41% |
+| merges with genuinely frail overlap (<50 bp) | **2 306 (1.27% of all merges)** |
+
+The reasoning was right about the *risk* and wrong about the *lever*. MINLEN acts on a
+single read **before the overlap is known**, so it cannot distinguish a 190 bp mate that
+merges with 120 bp of support from a 50 bp mate that merges with 11 bp. PEAR's
+`min_length` (200) does not catch the frail case either — a 50 bp read merging with a
+274 bp read yields 313 bp and sails through. The parameter that measures exactly the
+quantity of concern is PEAR's **`min_overlap`, still at 10**.
+
+Aligned at 50. Safe for the golden and verified before the change: **zero** pairs in
+either frozen dataset have a read under 200 bp, so 50 and 200 produce byte-identical
+output there. `KNOWN_DIVERGENCES` is now empty and a test asserts it stays empty.
+
+**Open, and deliberately not done here: raise `min_overlap` from 10 to ~50.** It would
+remove the 2 306 frail merges and keep the 12 230 good ones. It is not a free change:
+the fixture has 83 merges under a 50 bp overlap and `_real` has 1 649 (2.0% of each), so
+it **re-baselines the golden**. `golden.py check` would not notice — it compares a stored
+run against frozen files and never re-runs — so the golden would stay green while
+silently ceasing to be reproducible from the code. Green-and-stale is worse than red, and
+it is the same shape as the five "looks alive, does nothing" findings. A re-freeze is a
+decision of its own, and `_real` needs hardware this box does not have.
+
+**Also on the list, not now:** a fixed MINLEN is wrong on a multi-marker platform. It
+should derive from the expected amplicon length, exactly as the marker now derives from
+the primer preset — same shape, same solution.
+
 ## 2026-07-24 — The same bug, fixed once already, in the CONSUMER instead of the SOURCE. Third recurrence of this pattern, and the first with documentary proof the earlier fix failed for that reason.
 
 `min_unique_size` had four definitions. Three said 1 — `core/config.py`

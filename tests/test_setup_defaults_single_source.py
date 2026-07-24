@@ -40,11 +40,7 @@ FIELD_TO_PARAM = {
 # Divergences that are a REPORTED, open scientific decision rather than a bug. Anything
 # not listed here must agree. Keep this list empty if you can; each entry is a run whose
 # parameters depend on whether it was started from the UI or from scripts/run_pipeline.py.
-KNOWN_DIVERGENCES = {
-    # Setup offers 50, RunConfig 200. Reported 2026-07-24 with the min_unique_size
-    # measurement; which floor is right is the study's call, not the code's.
-    "setup-trim-minlen",
-}
+KNOWN_DIVERGENCES: set[str] = set()
 
 
 def _page_defaults() -> dict[str, str]:
@@ -88,10 +84,17 @@ class SetupDefaultsSingleSourceTests(unittest.TestCase):
                 disagreements.append(f"{field}={written} but {group}.{key}={expected}")
         self.assertEqual(disagreements, [], "; ".join(disagreements))
 
-    def test_the_known_divergence_is_still_the_one_we_reported(self):
-        """If this fails, trim-minlen was resolved — drop it from KNOWN_DIVERGENCES."""
+    def test_trim_minlen_is_aligned_at_50(self):
+        """Resolved 2026-07-24, DOWN rather than up: 200 would have discarded 8.00% of
+        merges on the COI run, 92.82% of them valid amplicons, to remove the 1.27% with
+        frail overlap. The quantity at risk is PEAR's min_overlap, not read length."""
         self.assertEqual(self.page.get("setup-trim-minlen"), "50")
-        self.assertEqual(self.config.trimmomatic_params["minlen"], 200)
+        self.assertEqual(self.config.trimmomatic_params["minlen"], 50)
+
+    def test_no_divergence_is_currently_tolerated(self):
+        """KNOWN_DIVERGENCES is empty and should stay that way. Each entry would be a
+        run whose parameters depend on whether it started from the UI or the CLI."""
+        self.assertEqual(KNOWN_DIVERGENCES, set())
 
 
 if __name__ == "__main__":  # pragma: no cover

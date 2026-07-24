@@ -118,7 +118,19 @@ class RunConfig:
 		"trailing": 3,
 		"window_size": 4,
 		"window_quality": 20,
-		"minlen": 200,
+		# 50, matching the Setup field, which is what every UI run already used while
+		# this said 200 — the run's parameters depended on the entry point.
+		#
+		# Aligned DOWN, against the first instinct, because 200 was measured to be the
+		# wrong instrument. On the COI/Leray run it would have discarded 14 536 merges
+		# (8.00%), of which 92.82% were valid 313 bp amplicons whose R2 had merely been
+		# quality-trimmed just below the threshold — spending 8% of the data to remove
+		# the 1.27% of merges with genuinely frail overlap. MINLEN acts on a single read
+		# before the overlap is known; the quantity actually at risk is PEAR's
+		# ``min_overlap`` (still 10, and still able to accept an 11 bp junction). That
+		# is the parameter to raise, and doing so re-baselines the golden, so it is a
+		# decision of its own rather than a side effect of this one.
+		"minlen": 50,
 	})
 	vsearch_params: Dict = field(default_factory=lambda: {
 		"fastq_maxee": 1.0,
