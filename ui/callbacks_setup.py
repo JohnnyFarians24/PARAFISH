@@ -178,7 +178,7 @@ def register_callbacks(app: Any) -> None:
         from analysis.vsearch_runner import PRIMER_PRESETS
         from core.config import get_db_paths
         from core.preflight import available_memory_bytes, max_samples_for_memory, preflight_notes, total_memory_bytes
-        from databases.reference_filter import marker_filter_applies, resolve_marker
+        from databases.reference_filter import marker_filter_applies, resolve_run_marker
 
         samples = [s for s in (samples_data or {}).get("samples", []) if s.get("selected", True)]
         n_samples = len(samples)
@@ -186,7 +186,11 @@ def register_callbacks(app: Any) -> None:
         total = total_memory_bytes()
         limit = max_samples_for_memory(available)
 
-        marker = resolve_marker(s.get("marker") for s in samples)
+        # Same resolution the run uses, preset first: a preflight that predicted OTHER
+        # while the run resolved COI would advise on a filter that never happens.
+        marker, _ = resolve_run_marker(
+            (s.get("marker") for s in samples), {"primer_preset": primer_preset}
+        )
         forward = str(primer_fwd or "").strip()
         reverse = str(primer_rev or "").strip()
         if not (forward or reverse):
@@ -201,12 +205,16 @@ def register_callbacks(app: Any) -> None:
                 forward, reverse = PRIMER_PRESETS[preset]
         marker_filter = marker if marker_filter_applies(marker, (forward, reverse)) else ""
 
+        from databases.taxonomy_runner import SOURCE_SUPPORTED_MARKERS, _marker_incompatible
+
+        inapplicable = [key for key in SOURCE_SUPPORTED_MARKERS if _marker_incompatible(key, marker)]
         notes = preflight_notes(
             db_sources or [],
             get_db_paths(),
             n_samples,
             analysis_method or "",
             marker_filter=marker_filter,
+            inapplicable=inapplicable,
         )
 
         pills = [

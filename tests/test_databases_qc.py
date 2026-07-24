@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import subprocess
 import tempfile
 import unittest
@@ -439,3 +440,130 @@ class SourceStatusTruthTests(unittest.TestCase):
         out = _reconcile_source_status(status, {}, 7)
 
         self.assertEqual(set(out[0]), {"source", "status", "detail"})
+
+
+class MarkerResolutionTests(unittest.TestCase):
+    """Task 1(a): the run's marker comes from the primer preset, not the file name.
+
+    The COI/Leray run that motivated this had samples named ``aptl64b_01``. No
+    ``coi`` token in the stem, so the name-based guess returned None, the marker
+    resolved to OTHER, and SILVA/PR2 were cut with COI primers.
+    """
+
+    def test_preset_supplies_marker_when_file_names_are_silent(self):
+        from databases.reference_filter import resolve_run_marker
+
+        from analysis.sample_parsing import parse_fastq_name
+
+        self.assertIsNone(parse_fastq_name("aptl64b_01.fastq.gz").marker)
+        marker, note = resolve_run_marker([None], {"primer_preset": "COI_Leray"})
+
+        self.assertEqual(marker, "COI")
+        self.assertEqual(note, "")
+
+    def test_preset_wins_over_file_name_and_records_the_disagreement(self):
+        from databases.reference_filter import resolve_run_marker
+
+        marker, note = resolve_run_marker(["18S"], {"primer_preset": "COI_Leray"})
+
+        self.assertEqual(marker, "COI")
+        self.assertIn("COI", note)
+        self.assertIn("18S", note)
+
+    def test_file_name_still_used_when_no_preset(self):
+        from databases.reference_filter import resolve_run_marker
+
+        self.assertEqual(resolve_run_marker(["18S"], {})[0], "18S")
+
+    def test_every_preset_declares_a_marker(self):
+        from analysis.vsearch_runner import PRESET_MARKER, PRIMER_PRESETS
+
+        self.assertEqual(set(PRESET_MARKER), set(PRIMER_PRESETS))
+
+    def test_unknown_marker_does_not_cut_a_reference_with_arbitrary_primers(self):
+        """OTHER + COI primers used to reach the amplicon cut and shred SILVA."""
+        from analysis.vsearch_runner import PRIMER_PRESETS
+        from databases.reference_filter import build_marker_reference, marker_filter_applies
+
+        leray = PRIMER_PRESETS["COI_Leray"]
+        self.assertFalse(marker_filter_applies("OTHER", leray))
+        self.assertFalse(marker_filter_applies("", leray))
+        with tempfile.TemporaryDirectory() as d:
+            source = Path(d) / "silva.fasta"
+            source.write_text(">a;tax=d:Eukaryota;\nACGT\n", encoding="utf-8")
+            self.assertIsNone(build_marker_reference(source, "OTHER", leray))
+
+
+class MarkerApplicabilityTests(unittest.TestCase):
+    """Task 1(b): applicability is symmetric, and decided before any work."""
+
+    def test_rrna_sources_are_not_applicable_on_a_coi_run(self):
+        from databases.taxonomy_runner import _marker_incompatible
+
+        self.assertTrue(_marker_incompatible("SILVA", "COI"))
+        self.assertTrue(_marker_incompatible("PR2", "COI"))
+
+    def test_coi_source_is_not_applicable_on_an_rrna_run(self):
+        """The direction that already worked must keep working."""
+        from databases.taxonomy_runner import _marker_incompatible
+
+        self.assertTrue(_marker_incompatible("BOLD", "18S"))
+
+    def test_each_source_is_applicable_to_its_own_marker(self):
+        from databases.taxonomy_runner import _marker_incompatible
+
+        self.assertFalse(_marker_incompatible("SILVA", "18S"))
+        self.assertFalse(_marker_incompatible("SILVA", "16S"))
+        self.assertFalse(_marker_incompatible("PR2", "18S"))
+        self.assertFalse(_marker_incompatible("BOLD", "COI"))
+
+    def test_unknown_marker_never_makes_a_source_inapplicable(self):
+        """A gap in configuration must not silently drop a database."""
+        from databases.taxonomy_runner import _marker_incompatible
+
+        for marker in ("", "OTHER", None):
+            self.assertFalse(_marker_incompatible("SILVA", marker))
+            self.assertFalse(_marker_incompatible("BOLD", marker))
+
+    def test_incompatible_source_is_skipped_without_being_filtered_or_loaded(self):
+        """The whole point: not_applicable costs nothing. If sintax_ready_path or
+        _apply_marker_filter is reached on a COI run, the minutes are already spent."""
+        from unittest.mock import MagicMock
+
+        import databases.taxonomy_runner as tr
+
+        silva = MagicMock()
+        with tempfile.TemporaryDirectory() as d:
+            fasta = Path(d) / "reps.fasta"
+            fasta.write_text(">OTU1\nACGTACGTACGT\n", encoding="utf-8")
+            with patch.object(tr, "_apply_marker_filter") as filt, patch.object(tr, "run_sintax") as sintax:
+                result = tr.run_taxonomy_pipeline(
+                    fasta, Path(d) / "out", silva_config=silva, marker="COI"
+                )
+
+                status_csv = result.files["source_status_csv"]
+                rows = list(csv.DictReader(status_csv.open(encoding="utf-8")))
+
+        silva.sintax_ready_path.assert_not_called()
+        filt.assert_not_called()
+        sintax.assert_not_called()
+        entry = [row for row in rows if row["source"] == "SILVA"][0]
+        self.assertEqual(entry["status"], "not_applicable")
+        self.assertIn("COI", entry["detail"])
+
+    def test_preflight_announces_the_skip_instead_of_promising_a_filter(self):
+        """The reported symptom was a preflight line promising to reduce SILVA "ao teu
+        marcador (OTHER)". On a COI run SILVA is not filtered at all — it is skipped."""
+        from core.preflight import preflight_notes
+
+        with patch("core.preflight.available_memory_bytes", return_value=2 * 1024**3), \
+            patch("core.preflight.total_memory_bytes", return_value=3 * 1024**3):
+            notes = preflight_notes(
+                ["silva", "pr2", "bold"], object(), 1, "vsearch",
+                marker_filter="COI", inapplicable=["SILVA", "PR2"],
+            )
+
+        joined = " ".join(notes)
+        self.assertIn("SILVA", joined)
+        self.assertIn("não aplicável", joined)
+        self.assertNotIn("reduzida ao teu marcador", joined)

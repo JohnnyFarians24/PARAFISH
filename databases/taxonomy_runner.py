@@ -705,7 +705,49 @@ def _source_assignment_counts(records_by_asv) -> Dict[str, int]:
 # to identify 18S amplicons it returns rows with every rank empty — and "returned nothing"
 # is the same shape as an honest absence of matches, which is how it came to be reported
 # as an ordinary ``no_hits`` on data it was never able to answer for.
-SOURCE_SUPPORTED_MARKERS = {"BOLD": {"COI"}}
+# SILVA/PR2: both shipped releases are SSU (``SILVA_138.2_SSURef_NR99``,
+# ``pr2_5.1.1_SSU``) — small-subunit rRNA. They cannot carry a protein-coding COI
+# amplicon any more than BOLD can carry 18S, but only BOLD's direction was ever
+# encoded, so a COI run put SILVA and PR2 through the amplicon cut and the SINTAX
+# load and then reported the nothing they found as an ordinary ``no_hits``. PR2 is
+# the eukaryotic SSU, so 16S runs are outside it too.
+SOURCE_SUPPORTED_MARKERS = {
+	"BOLD": {"COI"},
+	"SILVA": {"16S", "18S"},
+	"PR2": {"18S"},
+}
+
+
+def _marker_incompatible(source_key: str, marker) -> bool:
+	"""True when ``source_key``'s reference cannot carry ``marker``.
+
+	Unknown markers are never incompatible: "we could not tell what this is" is not
+	evidence that a source is inapplicable, and refusing to run on it would turn a
+	gap in configuration into a silent loss of a database.
+	"""
+	supported = SOURCE_SUPPORTED_MARKERS.get(str(source_key or "").upper())
+	marker_upper = str(marker or "").strip().upper()
+	if not supported or not marker_upper or marker_upper == "OTHER":
+		return False
+	return marker_upper not in supported
+
+
+def _not_applicable(source: str, marker) -> Dict[str, str]:
+	"""The status entry for a source skipped before it ever ran.
+
+	No ``key``/``raw``: those are what ``_reconcile_source_status`` judges a source by,
+	and there is nothing to judge here. Without a key the entry passes through
+	reconciliation untouched, which is what keeps this verdict final.
+	"""
+	supported = SOURCE_SUPPORTED_MARKERS.get(str(source or "").upper()) or set()
+	return {
+		"source": source,
+		"status": "not_applicable",
+		"detail": (
+			f"{source} indexa {'/'.join(sorted(supported))}; este run é "
+			f"{str(marker).strip().upper()} — a fonte foi saltada sem ser filtrada nem carregada"
+		),
+	}
 
 # Seed for VSEARCH's PRNG in SINTAX. Any fixed non-zero value works; what matters is that
 # it is not 0, which is vsearch's default and means "seed from a random source". A
@@ -1280,7 +1322,14 @@ def run_taxonomy_pipeline(
 	def _merge_sintax(source_name: str, table_path: Optional[Path]) -> None:
 		_merge_rows(_collect_sintax_records(source_name, table_path))
 
-	if silva_config is not None:
+	if silva_config is not None and _marker_incompatible("SILVA", marker):
+		# Before any of the work: sintax_ready_path() alone rewrites and caches a
+		# multi-hundred-MB reference, and the amplicon cut after it costs minutes.
+		entry = _not_applicable("SILVA", marker)
+		metrics["silva_not_applicable"] = 1.0
+		log_lines.append(entry["detail"])
+		source_status.append(entry)
+	elif silva_config is not None:
 		try:
 			silva_db_path = silva_config.sintax_ready_path()
 		except Exception as exc:
@@ -1308,7 +1357,12 @@ def run_taxonomy_pipeline(
 					detail = f"{detail} · {filter_note}"
 				source_status.append({"source": "SILVA", "status": status, "detail": detail, "key": "SILVA", "raw": silva_path})
 
-	if pr2_config is not None:
+	if pr2_config is not None and _marker_incompatible("PR2", marker):
+		entry = _not_applicable("PR2", marker)
+		metrics["pr2_not_applicable"] = 1.0
+		log_lines.append(entry["detail"])
+		source_status.append(entry)
+	elif pr2_config is not None:
 		try:
 			pr2_db_path = pr2_config.sintax_ready_path()
 		except Exception as exc:
@@ -1428,7 +1482,15 @@ def run_taxonomy_pipeline(
 			log_lines.append(ncbi_result.error_message or "NCBI failed")
 			source_status.append({"source": "NCBI", "status": "failed", "detail": ncbi_result.error_message or "falhou"})
 
-	if bold_config is not None:
+	if bold_config is not None and _marker_incompatible("BOLD", marker):
+		# BOLD's incompatibility was already known, but only after the fact: the run
+		# still paid for a full remote identification before the reconciliation
+		# relabelled the empty result. Same rule as SILVA/PR2 — decide before the work.
+		entry = _not_applicable("BOLD", marker)
+		metrics["bold_not_applicable"] = 1.0
+		log_lines.append(entry["detail"])
+		source_status.append(entry)
+	elif bold_config is not None:
 		# BOLDigger3 v3 (BOLD v5) classifies against the remote BOLD API and does
 		# NOT use a local ``.ddb`` file, so we must NOT gate BOLD on ``.ddb``
 		# presence — doing so silently skipped BOLD on every run. ``run_boldigger``

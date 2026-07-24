@@ -96,6 +96,11 @@ class RunConfig:
 	samples: List[Sample]
 	branch: AnalysisBranch
 	analysis_method: str = "vsearch"
+	# The run's marker, resolved once from the primer preset (falling back to the
+	# sample file names) and carried here so every stage answers "what was amplified"
+	# the same way. Derived per-caller before this existed, which is how the Databases
+	# stage came to believe a COI/Leray run was OTHER.
+	marker: str = ""
 	enabled_stages: Dict = field(default_factory=dict)
 	phylo_mode: Optional[PhyloMode] = None
 	output_dir: Path = Path("./output")

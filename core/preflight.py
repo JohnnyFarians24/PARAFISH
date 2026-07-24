@@ -116,6 +116,7 @@ def preflight_notes(
     n_samples: int,
     analysis_method: str = "",
     marker_filter: str = "",
+    inapplicable: Iterable[str] = (),
 ) -> list[str]:
     """Warnings to emit before a run. Empty when all is well.
 
@@ -124,11 +125,23 @@ def preflight_notes(
     than looked up so this module stays free of database imports. When it is set, the
     size that matters is the filtered one, and warning about the full file would send
     the user off to fix a problem that no longer exists.
+
+    ``inapplicable`` names sources this run's marker rules out entirely. They are
+    announced and then dropped: promising a COI run that "SILVA vai ser reduzida ao teu
+    marcador" describes work the run will not do, and it was the first visible symptom
+    that the marker had been resolved wrongly.
     """
     notes: list[str] = []
     available = available_memory_bytes()
     total = total_memory_bytes()
     sources = {str(source).lower() for source in db_sources or ()}
+    ruled_out = {str(source).lower() for source in inapplicable or ()} & sources
+    for source in sorted(ruled_out):
+        notes.append(
+            f"{source.upper()}: não indexa o marcador desta run — vai ser marcada como "
+            f"não aplicável e saltada, sem ser filtrada nem carregada."
+        )
+    sources -= ruled_out
 
     if available is None:
         return notes

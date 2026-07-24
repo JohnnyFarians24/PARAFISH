@@ -63,6 +63,18 @@ PRIMER_PRESETS = {
     "COI_Leray": ("GGWACWGGWTGAACWGTWTAYCCYCC", "TANACYTCNGGRTGNCCRAARAAYCA"),
 }
 
+# Which marker each preset amplifies. Chosen primers are the one *explicit* statement
+# the user makes about what was sequenced; before this map existed the marker was
+# guessed from the FASTQ file name alone, so a COI/Leray run on samples named
+# `aptl64b_01` resolved to OTHER and the rRNA references were cut with COI primers.
+# Kept beside PRIMER_PRESETS, not derived from the name prefix, so a preset added
+# without a marker fails the paired test below instead of being silently mis-typed.
+PRESET_MARKER = {
+    "18S_V4_TAReuk": "18S",
+    "COI_Folmer": "COI",
+    "COI_Leray": "COI",
+}
+
 
 def _primer_strip_lengths(params: Dict) -> tuple[int, int]:
     """Bases to strip from each end of a merged amplicon.

@@ -261,6 +261,14 @@ def run_config_from_store(project_data: Optional[dict], samples_data: Optional[d
 		run_config.analysis_method = raw["analysis_method"]
 	if raw.get("enabled_stages"):
 		run_config.enabled_stages = raw["enabled_stages"]
+	# Always re-derived, never read back from the store: the marker is a conclusion
+	# about the current primer preset and samples, so a value frozen before the user
+	# changed the preset would be stale. It is serialized for the record, not as input.
+	from databases.reference_filter import resolve_run_marker
+
+	run_config.marker, _ = resolve_run_marker(
+		(sample.marker for sample in run_config.samples), run_config.vsearch_params
+	)
 	method = getattr(run_config, "analysis_method", "vsearch")
 	if method == "dada2":
 		run_config.branch = AnalysisBranch.DADA2
@@ -352,6 +360,7 @@ def serialize_run_config(run_config: RunConfig) -> dict:
 		"samples": serialize_value(run_config.samples),
 		"branch": run_config.branch.value,
 		"analysis_method": getattr(run_config, "analysis_method", "vsearch"),
+		"marker": getattr(run_config, "marker", "") or "",
 		"enabled_stages": getattr(run_config, "enabled_stages", {}),
 		"phylo_mode": run_config.phylo_mode.value if run_config.phylo_mode else None,
 		"output_dir": str(run_config.output_dir),

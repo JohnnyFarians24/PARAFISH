@@ -115,6 +115,60 @@ def resolve_marker(markers: Iterable) -> str:
     return distinct.pop()
 
 
+# ``OTHER`` is this codebase's word for "we could not tell", not a marker in its own
+# right: it is what ``Marker`` falls back to and what an unmatched file name produces.
+# Treating it as a real scope is what let a COI/Leray run cut SILVA to "the OTHER
+# marker" — a filter with no referent.
+_UNKNOWN_MARKERS = {"", "OTHER"}
+
+
+def marker_is_known(marker) -> bool:
+    """True when ``marker`` names a real amplicon we can scope a reference to."""
+    return normalize_marker(marker) not in _UNKNOWN_MARKERS
+
+
+def preset_marker(params) -> str:
+    """The marker implied by the run's primer preset, or ``""``.
+
+    Imported lazily and defensively for the same reason ``cutadapt_runner`` does it:
+    ``databases`` must not hard-depend on ``analysis`` to answer a question about
+    configuration.
+    """
+    try:
+        from analysis.vsearch_runner import PRESET_MARKER
+    except ImportError:  # pragma: no cover - analysis package always ships with us
+        return ""
+    preset = str((params or {}).get("primer_preset") or "").strip()
+    return normalize_marker(PRESET_MARKER.get(preset, ""))
+
+
+def resolve_run_marker(markers: Iterable, params=None) -> Tuple[str, str]:
+    """The marker a run targets, as ``(marker, note)``.
+
+    The primer preset wins over the marker guessed from the sample file names. The
+    preset is the one thing the user states outright about what was amplified; the
+    file-name marker comes from a regex looking for ``coi``/``18s``/``its`` tokens in
+    the stem, which finds nothing in a name like ``aptl64b_01`` and silently yields
+    ``OTHER``. A run configured COI/Leray then had its rRNA references cut with COI
+    primers — minutes spent building a reference that cannot match anything.
+
+    ``note`` is non-empty only when the two sources disagree. The disagreement does not
+    stop the run (the preset is still obeyed), but it is recorded, because a sample
+    named ``..._18S_...`` amplified with COI primers is a configuration worth seeing.
+    """
+    from_samples = resolve_marker(markers)
+    from_preset = preset_marker(params)
+    if not from_preset:
+        return from_samples, ""
+    if from_samples and from_samples != from_preset:
+        note = (
+            f"marcador do preset de primers ({from_preset}) difere do inferido dos nomes "
+            f"das amostras ({from_samples}); a run segue como {from_preset}"
+        )
+        return from_preset, note
+    return from_preset, ""
+
+
 def marker_filter_applies(marker, primers: Tuple[str, str] = ("", "")) -> bool:
     """Whether a run with this marker/primers gets a filtered reference.
 
@@ -122,6 +176,13 @@ def marker_filter_applies(marker, primers: Tuple[str, str] = ("", "")) -> bool:
     or paying for a build — a "SILVA needs 2.5 GB and will be skipped" warning is a lie
     once the filter is going to reduce it to a tenth of that before it is ever loaded.
     """
+    if not marker_is_known(marker):
+        # No marker, no basis for a cut. Reaching the primer branch below with an
+        # unknown marker is what let COI primers be taken to SILVA: cutadapt happily
+        # cuts an rRNA reference with them and leaves almost nothing behind, and the
+        # remains get loaded as if they were a reference. Let the memory gate decide
+        # about the full file instead — it at least says why it skipped.
+        return False
     forward, reverse = (primers or ("", ""))
     if normalize_marker(marker) in MARKER_LINEAGE:
         return True
@@ -296,6 +357,12 @@ def build_marker_reference(
     reference has no scope for — and the caller should use the original file.
     """
     source = Path(source_fasta)
+    if not marker_is_known(marker):
+        # The docstring already promised this ("an unknown marker"), but the code only
+        # honoured it when there were no primers: with primers set, an OTHER run fell
+        # through to the amplicon cut and spent minutes trimming a reference to a
+        # marker that was never identified.
+        return None
     marker_key = normalize_marker(marker)
     lineage = MARKER_LINEAGE.get(marker_key)
     forward, reverse = (primers or ("", ""))

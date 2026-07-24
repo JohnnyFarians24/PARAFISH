@@ -13,7 +13,7 @@ from databases.bold_db import BOLDConfig
 from databases.custom_db import CustomDBConfig
 from databases.ncbi_db import NCBIConfig
 from databases.pr2_db import PR2Config
-from databases.reference_filter import resolve_marker
+from databases.reference_filter import resolve_run_marker
 from databases.silva_db import SILVAConfig
 from databases.taxonomy_runner import run_taxonomy_pipeline
 from preprocess.cutadapt_runner import resolve_primers
@@ -1287,6 +1287,12 @@ def register_callbacks(app: Any) -> None:
         )
 
         log_lines = [{"ts": utc_now_iso(), "level": "RUN", "msg": "Starting taxonomy pipeline"}]
+        run_marker, marker_note = resolve_run_marker(
+            (sample.marker for sample in run_config.samples), run_config.vsearch_params
+        )
+        log_lines.append({"ts": utc_now_iso(), "level": "INFO", "msg": f"Marcador da run: {run_marker or 'não identificado'}"})
+        if marker_note:
+            log_lines.append({"ts": utc_now_iso(), "level": "WARN", "msg": marker_note})
         taxonomy_result = run_taxonomy_pipeline(
 			fasta_path,
 			run_config.output_dir / "databases",
@@ -1302,7 +1308,7 @@ def register_callbacks(app: Any) -> None:
             threads=int(run_config.vsearch_params.get("threads", 8)),
             # Cut SILVA/PR2 to the region this run amplified: it is what lets them run
             # locally at all on a small machine, and it matches reference to query.
-            marker=resolve_marker(sample.marker for sample in run_config.samples),
+            marker=run_marker,
             primers=resolve_primers(run_config),
 		)
         log_lines.append({"ts": utc_now_iso(), "level": "OK" if taxonomy_result.success else "ERR", "msg": taxonomy_result.error_message or "Taxonomy pipeline completed"})
