@@ -1,5 +1,60 @@
 # DEVLOG
 
+## 2026-07-24 — The same bug, fixed once already, in the CONSUMER instead of the SOURCE. Third recurrence of this pattern, and the first with documentary proof the earlier fix failed for that reason.
+
+`min_unique_size` had four definitions. Three said 1 — `core/config.py`
+(`PARAFISH_MIN_UNIQUE_SIZE`, with the measurements behind the choice), `core/models.py`
+(delegating to the constant, explicitly commented as "not a literal here"), and
+`.env.example`. The fourth, `ui/pages/page_setup.py`, hard-coded `value=2` into the
+field, and the callback takes the field whenever it is non-empty — which it always is.
+**Every UI run clustered at 2 while the project's documented, deliberate default was 1.**
+
+**The part that makes this worth its own entry is the comment already sitting in
+`ui/callbacks_setup.py`:**
+
+> Empty control -> the configured default, not a literal typed here. This line's
+> hardcoded 1 disagreed with the runner's hardcoded 2, so the policy depended on the
+> entry point.
+
+This bug was already found once, and already fixed once. The fix was applied **where the
+value is read** — the callback learned to fall back to the constant — and the source that
+was producing the wrong value, the page's `value=2`, was left alive. So the fallback
+never fired (the field is never empty) and the same defect came back by another path.
+
+Third recurrence of this pattern in this project (the phylo guard, the two
+`latest_run_dir`, this), and the first where we can prove the earlier repair failed
+*because of where it was applied*. **The transferable lesson: fixing at the point of
+consumption leaves the source alive and guarantees the recurrence by a different route.
+The two `latest_run_dir` were collapsed onto one primitive, not taught to agree — that is
+the shape that holds.** `tests/test_setup_defaults_single_source.py` now parses the page
+and fails if ANY Setup field disagrees with its `RunConfig` default, which closes the
+class rather than this instance.
+
+## 2026-07-24 — A defect class of its own: the interface teaching the OPPOSITE of the documented policy.
+
+The "Min unique size" help text on the Setup page read:
+
+> Singletons are overwhelmingly sequencing error and produce spurious OTUs. Set to 1 to
+> keep them.
+
+`core/config.py` says the opposite, and says it from measurement: the reads a floor of 2
+uniquely discards are *not* sequencing errors — those sit within 3% of an abundant
+sequence and get absorbed by clustering either way. What a floor of 2 discards is the
+read that is globally unique AND >3% from everything else, **which is the exact profile
+of a rare novel parasite** — the organism this platform exists to detect. The reference
+run measured 1 and 2 producing identical output, with clustering time as the only real
+cost.
+
+So the field was not merely defaulted wrong. It was **arguing** for the wrong value, in
+the user's own words, at the moment of choosing. A user who read that tooltip and acted
+on it would raise the floor and delete the rare signal — and would believe they were
+following the platform's advice while doing it. A wrong default is a bug; a wrong default
+with documentation defending it is a bug that recruits the user against their own study.
+
+Logged separately because the fix is separate: correcting `value=2` to `MIN_UNIQUE_SIZE`
+does nothing about a tooltip that will still be read. Both were changed. Worth a sweep of
+the other `_param_label` texts against what the code actually does — not done here.
+
 ## 2026-07-24 — Task 5 (measurement) + the bug it exposed: min_unique_size was 2 in every UI run, and the 90→112 rise is RECOVERY, not fragmentation.
 
 **The prediction was wrong, and the reason is worth more than the prediction.** Cutting
