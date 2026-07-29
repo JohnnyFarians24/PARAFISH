@@ -215,3 +215,53 @@ class SummaryUiSingleSourceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ConfidenceIsNotBitscoreTests(unittest.TestCase):
+    """Task 4a: the taxonomy_hits confidence column must not carry the BLAST bitscore.
+
+    confidence is a SINTAX bootstrap — a probability in [0,1]. bitscore is an alignment
+    score in the hundreds, a different quantity. An alignment source (NCBI/BOLD/custom
+    BLAST) has no confidence; the column stays empty for it, exactly as taxonomy_summary
+    already does with its separate align_identity / sintax_confidence columns. Measured
+    contamination before the fix: 1046/1046 NCBI rows in the real golden, 649/649 in the
+    fixture, where confidence == bitscore (e.g. OTU1 confidence=616.0, bitscore=616.0).
+    """
+
+    def test_alignment_source_row_has_no_confidence(self):
+        from databases.taxonomy_runner import _normalize_source_row
+
+        row = _normalize_source_row(
+            "NCBI",
+            {"species": "Gadus morhua", "pident": "99.4", "qcovhsp": "100", "bitscore": "717"},
+        )
+        self.assertEqual(row["confidence"], "")
+
+    def test_sintax_source_keeps_its_confidence(self):
+        from databases.taxonomy_runner import _normalize_source_row
+
+        self.assertEqual(
+            _normalize_source_row("SILVA", {"species": "Gadus morhua", "confidence": "0.92"})["confidence"],
+            "0.92",
+        )
+        self.assertEqual(
+            _normalize_source_row("PR2", {"genus": "Gadus", "SINTAX_bootstrap": "0.85"})["confidence"],
+            "0.85",
+        )
+
+    def test_hits_table_leaves_alignment_confidence_empty_but_keeps_bitscore(self):
+        """End to end through the hits builder: the bitscore is still reported in its OWN
+        column; only confidence is emptied for the alignment row."""
+        from databases.taxonomy_runner import _build_hits_rows, _normalize_source_row
+
+        record = _normalize_source_row(
+            "NCBI",
+            {"species": "Gadus morhua", "pident": "99.4", "qcovhsp": "100", "bitscore": "717"},
+        )
+        record["bitscore"] = "717"  # carried alongside, as the runner does
+        rows = _build_hits_rows({"OTU1": [record]})
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["confidence"], "")
+        self.assertEqual(rows[0]["bitscore"], "717")
+        self.assertNotEqual(rows[0]["confidence"], rows[0]["bitscore"])

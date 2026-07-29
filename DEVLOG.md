@@ -1,5 +1,47 @@
 # DEVLOG
 
+## 2026-07-24 — Task 4a: confidence stops carrying the bitscore. Fix + unit-proven; golden for two files is KNOWN-STALE pending the real run (documented, not silent).
+
+`taxonomy_hits.csv` reported the BLAST bitscore in its `confidence` column — an alignment
+score in the hundreds sitting under a header a reader takes for a [0,1] probability. A
+reviewer reads 616 as strong confidence. Measured: 1046/1046 NCBI rows in the real golden,
+649/649 in the fixture, `confidence == bitscore` exactly.
+
+**Scope measured before touching anything, both files, per instruction.** The bug was in
+`taxonomy_hits` ONLY — `taxonomy_summary` was already fixed in an earlier session and has no
+`confidence` column at all: it carries `align_identity` and `sintax_confidence` as SEPARATE
+columns, the same discriminator applied there. So this was the one place the cross-metric
+contamination survived.
+
+**Root cause, one line:** `_normalize_source_row` filled `confidence` with
+`_first_nonempty(row, "confidence", "SINTAX_bootstrap", "bootstrap", "bitscore")`. The
+`bitscore` fallback is the contamination — a SINTAX row has a real confidence/bootstrap,
+an alignment row has neither, so it grabbed the bitscore. Removed the fallback: an
+alignment source now leaves `confidence` empty (the discriminator: alignment sources do not
+have a confidence; do not fill the cell with another metric), while SINTAX keeps its
+bootstrap. The bitscore is untouched in its OWN column.
+
+**Proof.** `tests/test_taxonomy_summary.py::ConfidenceIsNotBitscoreTests` — alignment row →
+empty, SINTAX row → preserved, and end-to-end through `_build_hits_rows` the bitscore still
+appears in the bitscore column while confidence is empty. Seen to fail on the old code with
+`'717' != ''` (cache cleared first, per [[parafish-mutation-testing-pycache]]).
+
+**KNOWN-STALE golden, and why it cannot be closed here.** The fix changes two frozen
+deliverables — `taxonomy_hits.csv` and `source_assignments.csv` — in **fixture (649+4 rows)
+and real (1046+9)**; `fixture_asv` is unaffected (its ASV run was SINTAX-only, zero
+alignment rows). Re-freezing them means regenerating them, which means re-running the
+databases stage, which re-runs NCBI BLAST — unreachable from this box, and `blast` local is
+None. So `golden.py check` stays GREEN on these two files while the code no longer produces
+them: the exact green-and-stale trap the golden-limitation entry named. It is recorded here
+and in memory instead of left silent. **The obligation: re-freeze `taxonomy_hits` and
+`source_assignments` for fixture and real on the new machine, as part of the multi-source
+real run that regenerates everything anyway** (see [[parafish-multisource-consensus-unproven]]).
+Until then, a green golden on those two files means nothing — the unit test is the guarantee.
+
+Decision to commit now rather than defer 4a whole: the fix is correct and unit-proven, the
+re-freeze was always tied to the real run, and a documented known-stale is honest where a
+silent one is not. (User call, 2026-07-24.)
+
 ## 2026-07-24 — DIAGNOSTIC SESSION (no code changed): the mutation sweep, the three-axis status metric, and the multi-source consensus that has never actually run.
 
 No code was written this session. It was a measurement of where the platform stands, and

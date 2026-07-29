@@ -215,7 +215,14 @@ def _normalize_source_row(source: str, row: Dict[str, str]) -> Dict[str, str]:
 		# SINTAX is a k-mer classifier: it never aligns, so it has no coverage to
 		# report. Only the BLAST-backed sources fill this in.
 		"coverage": _first_nonempty(row, "coverage", "qcovhsp", "qcov"),
-		"confidence": _first_nonempty(row, "confidence", "SINTAX_bootstrap", "bootstrap", "bitscore"),
+		# NO bitscore fallback: confidence is a SINTAX bootstrap, a probability in [0,1].
+		# bitscore is an alignment score in the hundreds and a different quantity entirely.
+		# An alignment source (NCBI/BOLD/custom BLAST) has no confidence to report, so this
+		# stays empty for it — the same rule taxonomy_summary already follows with its
+		# separate align_identity / sintax_confidence columns. Falling back to bitscore put
+		# 616 in a column a reader takes for "0.62 confidence" (Task 4a; measured 1046/1046
+		# NCBI rows in the real golden, 649/649 in the fixture).
+		"confidence": _first_nonempty(row, "confidence", "SINTAX_bootstrap", "bootstrap"),
 		"flags": _first_nonempty(row, "flags", "BOLD_flags", "Warnings"),
 		# BLAST's taxid, carried so the NCBI lineage resolver can fill Kingdom..Family.
 		"taxid": _first_nonempty(row, "staxids", "taxid"),
