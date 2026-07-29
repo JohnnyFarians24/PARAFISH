@@ -63,7 +63,11 @@ def _read_consensus(consensus_csv) -> dict[str, dict[str, str]]:
     if not path.exists():
         return {}
     with path.open("r", encoding="utf-8", errors="replace") as handle:
-        return {row["ASV_ID"]: row for row in csv.DictReader(handle) if row.get("ASV_ID")}
+        return {
+            (row.get("feature_id") or row.get("ASV_ID")): row
+            for row in csv.DictReader(handle)
+            if row.get("feature_id") or row.get("ASV_ID")
+        }
 
 
 def deepest_consensus_rank(row: dict) -> str:

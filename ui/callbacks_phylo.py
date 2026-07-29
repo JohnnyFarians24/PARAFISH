@@ -108,7 +108,7 @@ def _tip_taxonomy(mapping: dict, databases_data, run_config_data) -> dict:
     ranks = ["Consensus_Species", "Consensus_Genus", "Consensus_Family", "Consensus_Order", "Consensus_Phylum"]
     labels: dict[str, str] = {}
     for _, row in consensus.iterrows():
-        tip = mapping.get(str(row.get("ASV_ID", "")).split(";")[0].strip())
+        tip = mapping.get(str(row.get("feature_id", "") or row.get("ASV_ID", "")).split(";")[0].strip())
         if not tip:
             continue
         for rank in ranks:

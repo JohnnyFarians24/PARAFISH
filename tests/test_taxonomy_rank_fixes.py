@@ -271,8 +271,8 @@ class ClusteringTests(unittest.TestCase):
         reversed_insertion = {"OTU3": records("Gadus", "Pollachius"), "OTU1": records("Gadus", "Melanogrammus")}
 
         self.assertEqual(
-            [row["ASV_ID"] for row in _build_conflict_report(forward)],
-            [row["ASV_ID"] for row in _build_conflict_report(reversed_insertion)],
+            [row["feature_id"] for row in _build_conflict_report(forward)],
+            [row["feature_id"] for row in _build_conflict_report(reversed_insertion)],
         )
 
     def test_singletons_are_retained_by_default(self):

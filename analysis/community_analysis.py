@@ -71,7 +71,7 @@ def _load_taxonomy(path: Path, rank: str) -> dict[str, str]:
     if not rows:
         return {}
     columns = list(rows[0].keys())
-    id_col = next((c for c in ("ASV_ID", "asv_id", "OTU_ID", "id", "qseqid") if c in columns), columns[0])
+    id_col = next((c for c in ("feature_id", "ASV_ID", "asv_id", "OTU_ID", "id", "qseqid") if c in columns), columns[0])
     rank_col = next((c for c in _RANK_COLUMNS.get(canonical_rank(rank), []) if c in columns), None)
     if rank_col is None:
         return {}

@@ -369,9 +369,10 @@ def _composition_table(run_dir: Path, rank: str, exclude_host: bool):
     if not features or not samples:
         return None
 
-    if "ASV_ID" not in taxonomy.columns:
+    id_col = "feature_id" if "feature_id" in taxonomy.columns else "ASV_ID"
+    if id_col not in taxonomy.columns:
         return None
-    names = dict(zip(taxonomy["ASV_ID"].astype(str), taxonomy[rank]))
+    names = dict(zip(taxonomy[id_col].astype(str), taxonomy[rank]))
     host = _HOST_MARKERS
 
     rows = []

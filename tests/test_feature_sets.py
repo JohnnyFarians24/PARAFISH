@@ -126,8 +126,8 @@ class EvidenceColumnTests(unittest.TestCase):
         row = _build_consensus_row("OTU1", records, "lca", "OTU")
 
         self.assertEqual(row["feature_type"], "OTU")
-        self.assertEqual(row["Best_Identity"], "99.2")
-        self.assertEqual(row["Best_Coverage"], "98")
+        self.assertEqual(row["Best_Identity"], "99.20")  # 4d: 2 decimals
+        self.assertEqual(row["Best_Coverage"], "98.00")
         self.assertEqual(row["Best_Source"], "NCBI")
         self.assertEqual(row["Reliability"], "high")
 
@@ -174,8 +174,8 @@ class EvidenceColumnTests(unittest.TestCase):
         }
         rows = _build_hits_rows(hits, "OTU")
         self.assertEqual([row["hit_rank"] for row in rows], [1, 2])
-        self.assertEqual(rows[0]["identity"], "99.0")
-        self.assertEqual(rows[1]["identity"], "91.0")  # kept, not discarded
+        self.assertEqual(rows[0]["identity"], "99.00")  # 4d: 2 decimals
+        self.assertEqual(rows[1]["identity"], "91.00")  # kept, not discarded
         self.assertTrue(all(row["feature_type"] == "OTU" for row in rows))
 
 

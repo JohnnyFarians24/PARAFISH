@@ -26,6 +26,7 @@ from ui.runtime_state import decode_upload_content, latest_run_dir, resolve_proj
 # Plain-language headers: "Best_Identity" is a column name, "% identidade" is what the
 # reader is actually looking for.
 _CONSENSUS_HEADERS = {
+    "feature_id": "ID",
     "ASV_ID": "ID",
     "feature_type": "Tipo",
     "Best_Identity": "% identidade",
@@ -43,7 +44,7 @@ _CONSENSUS_HEADERS = {
 
 
 
-_ID_COLUMNS = ("ASV_ID", "asv_id", "qseqid", "id", "seq_id", "query", "feature")
+_ID_COLUMNS = ("feature_id", "ASV_ID", "asv_id", "qseqid", "id", "seq_id", "query", "feature")
 
 
 def _clean_feature_ids(frame):
@@ -94,7 +95,7 @@ def _load_hits_frame(db_outputs: dict, run_output_dir, feature_set: str, min_ide
     if top_n and "hit_rank" in frame.columns:
         frame = frame[frame["hit_rank"] <= int(top_n)]
 
-    sort_columns = [c for c in ("ASV_ID", "hit_rank") if c in frame.columns]
+    sort_columns = [c for c in ("feature_id", "ASV_ID", "hit_rank") if c in frame.columns]
     if sort_columns:
         frame = frame.sort_values(by=sort_columns)
     return frame, None
@@ -362,7 +363,8 @@ def register_callbacks(app: Any) -> None:
         if frame.empty:
             return html.Div("Nenhum hit passa os filtros escolhidos.", className="empty-state-sub")
 
-        n_features = frame["ASV_ID"].nunique() if "ASV_ID" in frame.columns else 0
+        _id_col = "feature_id" if "feature_id" in frame.columns else "ASV_ID"
+        n_features = frame[_id_col].nunique() if _id_col in frame.columns else 0
         headers = {**_CONSENSUS_HEADERS, "hit_rank": "Hit #", "identity": "% identidade", "coverage": "% cobertura", "reliability": "Fiabilidade", "source": "Fonte", "taxon": "Taxon", "subject": "Referência"}
         return html.Div(
             [
@@ -449,6 +451,7 @@ def register_callbacks(app: Any) -> None:
             return html.Div("Nenhuma feature classificada.", className="empty-state-sub")
 
         headers = {
+            "feature_id": "ID",
             "ASV_ID": "ID",
             "feature_type": "Tipo",
             "consensus_taxon": "Consenso (LCA)",
@@ -681,6 +684,10 @@ def register_callbacks(app: Any) -> None:
             assignments = pd.read_csv(assignments_path)
         except Exception as exc:
             return html.Div(f"Assignments unavailable: {exc}", className="empty-state-sub")
+        # Deliverables now key on feature_id; a stored run from before the rename still
+        # carries ASV_ID, so normalise to the new name before the fixed column spec below.
+        if "ASV_ID" in assignments.columns and "feature_id" not in assignments.columns:
+            assignments = assignments.rename(columns={"ASV_ID": "feature_id"})
         if assignments.empty:
             return html.Div("No taxonomic assignments were made.", className="empty-state-sub")
 
@@ -694,7 +701,7 @@ def register_callbacks(app: Any) -> None:
             data_table(
                 data=assignments.to_dict("records"),
                 columns=[
-                    {"name": "OTU / ASV", "id": "ASV_ID"},
+                    {"name": "OTU / ASV", "id": "feature_id"},
                     {"name": "Source", "id": "source"},
                     {"name": "Deepest rank", "id": "rank"},
                     {"name": "Taxon", "id": "taxon"},

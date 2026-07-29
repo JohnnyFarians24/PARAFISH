@@ -129,7 +129,7 @@ def build_taxon_bridge(
             taxon = (row.get(column) or "").strip()
             if not taxon:
                 continue
-            feature_id = (row.get("ASV_ID") or "").strip()
+            feature_id = (row.get("feature_id") or row.get("ASV_ID") or "").strip()
             tally[taxon]["n"] += 1
             tally[taxon]["reads"] += reads.get(feature_id, 0.0)
         return tally

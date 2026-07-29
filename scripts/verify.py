@@ -371,7 +371,7 @@ def check_source_status(run: Path, report: Report, fset: str) -> None:
             continue
         assigned_by_source.setdefault(source, set())
         if _norm(row.get("taxon")) and _norm(row.get("rank")):
-            assigned_by_source[source].add((row.get("ASV_ID") or "").strip())
+            assigned_by_source[source].add((row.get("feature_id") or row.get("ASV_ID") or "").strip())
     counts = {source: len(features) for source, features in assigned_by_source.items()}
 
     problems = []
@@ -433,7 +433,7 @@ def check_source_status(run: Path, report: Report, fset: str) -> None:
         credited_nothing = []
         unused = {source for source, count in counts.items() if count > 0}
         for row in _read_csv(consensus_path):
-            feature = (row.get("ASV_ID") or "").strip()
+            feature = (row.get("feature_id") or row.get("ASV_ID") or "").strip()
             for source in (s.strip().upper() for s in (row.get("Consensus_Sources") or "").split("|") if s.strip()):
                 unused.discard(source)
             best = _norm(row.get("Best_Source")).upper()

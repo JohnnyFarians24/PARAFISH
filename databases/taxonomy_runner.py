@@ -129,6 +129,26 @@ def _safe_text(value) -> str:
 	return str(value).strip() if value is not None else ""
 
 
+def _round2(value) -> str:
+	"""Render an identity/coverage cell to 2 decimals; pass non-numbers through unchanged.
+
+	Alignment identities arrive as full-precision floats (99.41002949852508); the
+	deliverable tables show 99.41. Empty or non-numeric cells (blanks, already-formatted
+	strings) are returned untouched, so this never corrupts a value it cannot parse.
+	"""
+	number = _to_float(value)
+	if number is None:
+		return _safe_text(value)
+	return f"{number:.2f}"
+
+
+def _display_rank(level: str) -> str:
+	"""Render a rank name for a deliverable cell: the Python-safe internal key ``class_``
+	is shown as ``class``; every other rank is unchanged. The internal ``TAXONOMY_LEVELS``
+	keys stay ``class_`` — this only touches what reaches a CSV, never a lookup key."""
+	return "class" if level == "class_" else level
+
+
 def _row_value(row: Dict[str, str], key: str) -> str:
 	"""Case-insensitive column lookup.
 
@@ -393,7 +413,7 @@ def _build_consensus_row(asv_id: str, records: list[dict], method: str, feature_
 	else:
 		consensus = _lca_consensus(records)
 	row = {
-		"ASV_ID": asv_id,
+		"feature_id": asv_id,
 		"feature_type": feature_type,
 		"Consensus_Kingdom": consensus.get("kingdom", ""),
 		"Consensus_Phylum": consensus.get("phylum", ""),
@@ -441,8 +461,8 @@ def _build_consensus_row(asv_id: str, records: list[dict], method: str, feature_
 	)
 	best = best_alignment_record(records)
 	if best is not None:
-		row["Best_Identity"] = _safe_text(best.get("similarity"))
-		row["Best_Coverage"] = _safe_text(best.get("coverage"))
+		row["Best_Identity"] = _round2(best.get("similarity"))
+		row["Best_Coverage"] = _round2(best.get("coverage"))
 		row["Best_Source"] = _safe_text(best.get("source"))
 		row["Reliability"] = assignment_reliability(best, consensus_rank)
 	else:
@@ -472,7 +492,7 @@ _CONSENSUS_RANK_COLUMNS = [
 # consensus is the table people actually read, and a taxonomic call without the
 # identity and coverage behind it cannot be judged.
 CONSENSUS_COLUMNS = [
-	"ASV_ID",
+	"feature_id",
 	"feature_type",
 	*_CONSENSUS_RANK_COLUMNS,
 	"Best_Identity",
@@ -556,7 +576,7 @@ SINTAX_CONFIDENCE_THRESHOLD = 0.8
 # Minimum query coverage for an alignment-based call to count as reliable.
 MIN_COVERAGE = 80.0
 
-ASSIGNMENT_COLUMNS = ["ASV_ID", "source", "rank", "taxon", "identity", "coverage", "confidence", "reliability"]
+ASSIGNMENT_COLUMNS = ["feature_id", "source", "rank", "taxon", "identity", "coverage", "confidence", "reliability"]
 
 
 def _to_float(value) -> Optional[float]:
@@ -602,12 +622,12 @@ def _build_assignment_rows(records_by_asv: Dict[str, List[dict]]) -> List[Dict[s
 			rank = deepest_rank(record)
 			rows.append(
 				{
-					"ASV_ID": asv_id,
+					"feature_id": asv_id,
 					"source": record.get("source", ""),
-					"rank": rank,
+					"rank": _display_rank(rank),
 					"taxon": _safe_text(record.get(rank)) if rank != "unassigned" else "",
-					"identity": _safe_text(record.get("similarity")),
-					"coverage": _safe_text(record.get("coverage")),
+					"identity": _round2(record.get("similarity")),
+					"coverage": _round2(record.get("coverage")),
 					"confidence": _safe_text(record.get("confidence")),
 					"reliability": assignment_reliability(record, rank),
 				}
@@ -638,8 +658,8 @@ def _build_conflict_report(records_by_asv: Dict[str, List[dict]]) -> List[Dict[s
 		if conflict_levels:
 			report_rows.append(
 				{
-					"ASV_ID": asv_id,
-					"conflict_levels": ",".join(conflict_levels),
+					"feature_id": asv_id,
+					"conflict_levels": ",".join(_display_rank(level) for level in conflict_levels),
 					"sources": ",".join(sorted({record.get("source", "") for record in records if record.get("source")})),
 				}
 			)
@@ -1189,7 +1209,7 @@ def _abundance_order(feature_ids, totals: Dict[str, int]):
 
 
 HITS_COLUMNS = [
-	"ASV_ID",
+	"feature_id",
 	"feature_type",
 	"reads",
 	"sample_pct",
@@ -1245,19 +1265,19 @@ def _build_hits_rows(hits_by_asv: Dict[str, List[dict]], feature_type: str = "",
 			rank = deepest_rank(record)
 			rows.append(
 				{
-					"ASV_ID": asv_id,
+					"feature_id": asv_id,
 					"feature_type": feature_type,
 					"reads": abundance_cells["reads"],
 					"sample_pct": abundance_cells["sample_pct"],
 					"hit_rank": index,
 					"source": record.get("source", ""),
-					"rank": rank,
+					"rank": _display_rank(rank),
 					"taxon": _safe_text(record.get(rank)) if rank != "unassigned" else "",
 					"species": _safe_text(record.get("species")),
 					"genus": _safe_text(record.get("genus")),
 					"family": _safe_text(record.get("family")),
-					"identity": _safe_text(record.get("similarity")),
-					"coverage": _safe_text(record.get("coverage")),
+					"identity": _round2(record.get("similarity")),
+					"coverage": _round2(record.get("coverage")),
 					"confidence": _safe_text(record.get("confidence")),
 					"reliability": assignment_reliability(record, rank),
 					"subject": _safe_text(record.get("subject")),
@@ -1273,7 +1293,7 @@ def _build_hits_rows(hits_by_asv: Dict[str, List[dict]], feature_type: str = "",
 # so a reader sees whether the two families agree, and is never handed a single blended score
 # that hides a disagreement (the Phase-3 bug). This is the supervisors' deliverable table.
 SUMMARY_COLUMNS = [
-	"ASV_ID",
+	"feature_id",
 	"feature_type",
 	"reads",
 	"sample_pct",
@@ -1327,7 +1347,7 @@ def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: L
 	and the download cannot diverge. Ordered by descending abundance, same single source
 	as the hits table, so the two deliverables agree on which feature matters most.
 	"""
-	by_id = {row.get("ASV_ID"): row for row in consensus_rows}
+	by_id = {row.get("feature_id"): row for row in consensus_rows}
 	totals = abundances or {}
 	grand_total = sum(totals.values())
 	rows: List[Dict[str, str]] = []
@@ -1340,7 +1360,7 @@ def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: L
 		abundance_cells = _abundance_cells(asv_id, totals, grand_total)
 		rows.append(
 			{
-				"ASV_ID": asv_id,
+				"feature_id": asv_id,
 				"feature_type": feature_type,
 				"reads": abundance_cells["reads"],
 				"sample_pct": abundance_cells["sample_pct"],
@@ -1349,7 +1369,7 @@ def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: L
 				"consensus_reliability": _safe_text(consensus_row.get("Reliability")),
 				"align_source": _safe_text(align.get("source")) if align else "",
 				"align_taxon": _record_taxon(align),
-				"align_identity": _safe_text(align.get("similarity")) if align else "",
+				"align_identity": _round2(align.get("similarity")) if align else "",
 				"sintax_source": _safe_text(sintax.get("source")) if sintax else "",
 				"sintax_taxon": _record_taxon(sintax),
 				"sintax_confidence": _safe_text(sintax.get("confidence")) if sintax else "",
@@ -1659,7 +1679,7 @@ def run_taxonomy_pipeline(
 
 	consensus_rows = [_build_consensus_row(asv_id, records, consensus_method, feature_type) for asv_id, records in sorted(records_by_asv.items())]
 	conflicts = _build_conflict_report(records_by_asv)
-	conflict_columns = ["ASV_ID", "conflict_levels", "sources"]
+	conflict_columns = ["feature_id", "conflict_levels", "sources"]
 	_write_csv(conflict_report, conflicts, conflict_columns)
 
 	# Read once from the canonical abundance matrix and shared by both deliverables, so
@@ -1686,7 +1706,7 @@ def run_taxonomy_pipeline(
 	files["source_assignments_csv"] = assignments_path
 	consensus_table = ConsensusTable(consensus_rows, list(CONSENSUS_COLUMNS))
 	consensus_table.to_csv(consensus_path)
-	_annotate_fasta(fasta_path, {row["ASV_ID"]: row for row in consensus_rows}, annotated_fasta)
+	_annotate_fasta(fasta_path, {row["feature_id"]: row for row in consensus_rows}, annotated_fasta)
 	files["taxonomy_consensus_csv"] = consensus_path
 	files["annotated_fasta"] = annotated_fasta
 	files["conflict_report_csv"] = conflict_report

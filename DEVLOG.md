@@ -1,5 +1,52 @@
 # DEVLOG
 
+## 2026-07-30 — Task 4b+4d+4e: the deliverables identify features by `feature_id`, show identity/coverage to 2 decimals, and spell the class rank `class` — and the measurement corrected the task.
+
+Three cosmetic-sounding corrections to the taxonomy deliverables, in one pass: rename the
+id column `ASV_ID` → `feature_id` (4b), round `identity`/`coverage` to 2 decimals (4d), and
+spell the class rank `class` instead of the Python-safe internal key `class_` (4e).
+
+**The measurement refuted my own end-of-4c note ("same files, low risk").** `ASV_ID` is
+not a taxonomy-local column — it is the feature identifier across the WHOLE pipeline:
+the abundance matrix (`--otutabout` / the DADA2 R writer), the phylo mapping
+`reversed_asvs.csv`, the five taxonomy tables, and ~15 hand-written test fixtures. And
+**no reader's fallback chain contained `feature_id`** — so a writer-only rename would have
+broken every downstream reader in silence. That is exactly the `class_`-vs-`class` class of
+bug the user named, but spread across 20 files instead of 2. So this was a scope decision,
+not a mechanical edit, and it went to the user.
+
+**Scope A (chosen): the taxonomy deliverables only.** The five tables key on `feature_id`;
+every reader OF those files learned `feature_id` while keeping `ASV_ID` as a fallback, so a
+run stored before the rename still loads. The abundance matrix, the DADA2 R output and the
+phylo mapping KEEP `ASV_ID` — they are not taxonomy deliverables, and the internal join is
+by feature-id VALUE (unchanged "OTU1"…), never by column name, so nothing downstream breaks.
+Scope B (rename the identifier pipeline-wide, including the R script) was measured and
+declined: larger blast radius, no user-facing gain, since the internal key name is invisible.
+
+**4e is a value transform, not a header rename.** `class_` never was a header — it leaks
+into cells via `deepest_rank`, which returns the internal `TAXONOMY_LEVELS` key. A
+`_display_rank` helper maps it to `class` at the point it reaches the `rank`
+(source_assignments, hits) and `conflict_levels` (conflict_report) cells; the lookup key
+stays `class_`, so the taxon still resolves. **4d** rounds through a `_round2` helper that
+passes empty/non-numeric cells straight through — a SINTAX record with no identity keeps an
+empty cell, never `0.00`.
+
+**Discipline.** Five new tests pin the three contracts; four were seen to FAIL against the
+stashed old builder (cache cleared), the fifth is a regression guard on the empty-cell path
+(passes on both by design, and says so). The existing assertions that read the builder
+output by `ASV_ID`, or asserted a raw-decimal identity, were updated to track the rename and
+the rounding — an assertion following a deliberate contract change, not a weakening; the
+input FIXTURES written with `ASV_ID` were left as-is, and now double as a backward-compat
+proof that the tolerant readers still accept an old run. 561 pass, 5 skipped.
+
+**Golden: accumulates into the same one re-baseline, NOT re-frozen mid-Task-4.** 4b+4d+4e
+changes all five deliverables in all three datasets. The frozen files, made by old code,
+still carry `ASV_ID` + raw decimals + `class_`; `golden.py check` stays green-and-stale
+because it diffs stored-run vs frozen (both old) and never re-runs the pipeline. The
+obligation now lists 4b+4d+4e, and its FIRST line is the re-enable-first rule: the
+re-baseline is not done until the two suspended `SummaryGoldenTests` are un-skipped and
+passing — a re-frozen golden with tests still suspended is the debt the note exists to stop.
+
 ## 2026-07-24 — Task 4c: the taxonomy tables carry read counts and order by them, from the ONE abundance source, with hits kept grouped.
 
 The supervisors asked for "the best OTUs"; the deliverable had no read counts, so there

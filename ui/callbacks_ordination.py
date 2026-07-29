@@ -71,7 +71,7 @@ def _taxonomy_map(run_dir: Path, feature_set: str = "otu") -> dict[str, str]:
     names: dict[str, str] = {}
     with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
         for row in csv.DictReader(handle):
-            feature = (row.get("ASV_ID") or "").strip()
+            feature = (row.get("feature_id") or row.get("ASV_ID") or "").strip()
             if not feature:
                 continue
             for column in ("Consensus_Species", "Consensus_Genus", "Consensus_Family", "Consensus_Phylum"):
@@ -95,7 +95,7 @@ def _host_features(run_dir: Path, feature_set: str = "otu") -> set[str]:
     excluded: set[str] = set()
     with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
         for row in csv.DictReader(handle):
-            feature = (row.get("ASV_ID") or "").strip()
+            feature = (row.get("feature_id") or row.get("ASV_ID") or "").strip()
             if not feature:
                 continue
             lineage = " ".join(

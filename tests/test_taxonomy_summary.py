@@ -56,7 +56,7 @@ def _reconstruct_records(assignments_csv: Path) -> dict:
             taxon = (row.get("taxon") or "").strip()
             if rank and rank != "unassigned" and taxon:
                 record[rank] = taxon
-            records[row["ASV_ID"]].append(record)
+            records[row.get("feature_id") or row.get("ASV_ID")].append(record)
     return records
 
 
@@ -65,7 +65,7 @@ class SummaryBuilderTests(unittest.TestCase):
         from databases.taxonomy_runner import _build_consensus_row, _build_summary_rows
 
         consensus = [_build_consensus_row(fid, recs, "lca", "OTU") for fid, recs in sorted(records.items())]
-        return {row["ASV_ID"]: row for row in _build_summary_rows(records, consensus, "OTU")}
+        return {row["feature_id"]: row for row in _build_summary_rows(records, consensus, "OTU")}
 
     def test_both_families_land_in_separate_columns(self):
         # NCBI is an aligner: it carries an identity AND a confidence that is really the BLAST
@@ -80,7 +80,7 @@ class SummaryBuilderTests(unittest.TestCase):
         row = self._summary(records)["F1"]
         # Alignment family: NCBI, its identity, its taxon.
         self.assertEqual(row["align_source"], "NCBI")
-        self.assertEqual(row["align_identity"], "99.0")
+        self.assertEqual(row["align_identity"], "99.00")  # 4d: identity/coverage rendered to 2 decimals
         self.assertEqual(row["align_taxon"], "Gadus morhua")
         # SINTAX family: the higher bootstrap (SILVA 0.95 > PR2 0.80). NOT NCBI, whose 717 is a
         # bitscore, not a bootstrap — the cross-metric guard.
@@ -298,7 +298,7 @@ class AbundanceColumnsAndOrderingTests(unittest.TestCase):
 
         totals = {"OTU1": 900, "OTU2": 100}
         hits = {"OTU1": [self._records("a", "99")], "OTU2": [self._records("b", "98")]}
-        rows = {r["ASV_ID"]: r for r in _build_hits_rows(hits, "OTU", totals)}
+        rows = {r["feature_id"]: r for r in _build_hits_rows(hits, "OTU", totals)}
 
         self.assertEqual(rows["OTU1"]["reads"], "900")
         self.assertEqual(rows["OTU1"]["sample_pct"], "90.00")
@@ -314,7 +314,7 @@ class AbundanceColumnsAndOrderingTests(unittest.TestCase):
             "OTU3": [self._records(f"c{i}", str(99 - i)) for i in range(3)],
             "OTU2": [self._records(f"b{i}", str(99 - i)) for i in range(2)],
         }
-        order = [r["ASV_ID"] for r in _build_hits_rows(hits, "OTU", totals)]
+        order = [r["feature_id"] for r in _build_hits_rows(hits, "OTU", totals)]
 
         # OTU3 (900) first, then OTU2 (50), then OTU1 (10), each block contiguous.
         self.assertEqual(order, ["OTU3"] * 3 + ["OTU2"] * 2 + ["OTU1"] * 2)
@@ -338,7 +338,7 @@ class AbundanceColumnsAndOrderingTests(unittest.TestCase):
         consensus = [_build_consensus_row(a, r, "lca", "OTU") for a, r in records.items()]
         rows = _build_summary_rows(records, consensus, "OTU", {"OTU1": 5, "OTU2": 500})
 
-        self.assertEqual([r["ASV_ID"] for r in rows], ["OTU2", "OTU1"])
+        self.assertEqual([r["feature_id"] for r in rows], ["OTU2", "OTU1"])
         self.assertEqual(rows[0]["reads"], "500")
 
     def test_pct_is_rounded_to_two_decimals(self):
@@ -367,3 +367,99 @@ class AbundanceColumnsAndOrderingTests(unittest.TestCase):
             totals = _feature_abundances(m)
 
         self.assertEqual(totals, {"OTU1": 150, "OTU2": 4})
+
+
+class DeliverableColumnRenamesTests(unittest.TestCase):
+    """4b/4d/4e: the deliverable tables identify features by ``feature_id`` (not ``ASV_ID``),
+    render identity/coverage to 2 decimals, and spell the class rank ``class`` (not the
+    Python-safe internal key ``class_``). These pin the OUTPUT contract only — the internal
+    ``TAXONOMY_LEVELS`` key stays ``class_``, and the abundance matrix / phylo mapping keep
+    ``ASV_ID`` (they are not taxonomy deliverables).
+    """
+
+    def _class_record(self, source, klass, identity=""):
+        # Deepest resolved rank is class: only class_ is filled. Identity optional so we can
+        # exercise both the aligner and the empty-metric paths.
+        rec = {"source": source, "class_": klass}
+        if identity:
+            rec.update({"similarity": identity, "coverage": "100"})
+        return rec
+
+    # ---- 4b: feature_id is the id column, ASV_ID is gone -------------------------------
+    def test_all_five_deliverable_builders_key_on_feature_id(self):
+        from databases.taxonomy_runner import (
+            ASSIGNMENT_COLUMNS,
+            CONSENSUS_COLUMNS,
+            HITS_COLUMNS,
+            SUMMARY_COLUMNS,
+            _build_assignment_rows,
+            _build_conflict_report,
+            _build_consensus_row,
+            _build_hits_rows,
+            _build_summary_rows,
+        )
+
+        for columns in (HITS_COLUMNS, SUMMARY_COLUMNS, ASSIGNMENT_COLUMNS, CONSENSUS_COLUMNS):
+            self.assertEqual(columns[0], "feature_id")
+            self.assertNotIn("ASV_ID", columns)
+
+        records = {
+            "OTU1": [self._class_record("NCBI", "Insecta", "90"), self._class_record("PR2", "Arachnida")],
+        }
+        hits = {"OTU1": [self._class_record("NCBI", "Insecta", "90")]}
+        consensus = [_build_consensus_row("OTU1", records["OTU1"], "lca", "OTU")]
+        for row in (
+            _build_hits_rows(hits, "OTU")[0],
+            _build_summary_rows(records, consensus, "OTU")[0],
+            _build_assignment_rows(records)[0],
+            consensus[0],
+            _build_conflict_report(records)[0],
+        ):
+            self.assertIn("feature_id", row)
+            self.assertEqual(row["feature_id"], "OTU1")
+            self.assertNotIn("ASV_ID", row)
+
+    # ---- 4d: identity/coverage to 2 decimals ------------------------------------------
+    def test_identity_and_coverage_are_rendered_to_two_decimals(self):
+        from databases.taxonomy_runner import _build_assignment_rows, _build_consensus_row, _build_hits_rows
+
+        ugly = {"source": "NCBI", "species": "X", "genus": "X", "similarity": "99.41002949852508", "coverage": "87.5"}
+        records = {"OTU1": [ugly]}
+
+        hit = _build_hits_rows(records, "OTU")[0]
+        self.assertEqual(hit["identity"], "99.41")
+        self.assertEqual(hit["coverage"], "87.50")
+
+        assignment = _build_assignment_rows(records)[0]
+        self.assertEqual(assignment["identity"], "99.41")
+        self.assertEqual(assignment["coverage"], "87.50")
+
+        consensus = _build_consensus_row("OTU1", records["OTU1"], "lca", "OTU")
+        self.assertEqual(consensus["Best_Identity"], "99.41")
+        self.assertEqual(consensus["Best_Coverage"], "87.50")
+
+    def test_rounding_leaves_empty_and_non_numeric_cells_untouched(self):
+        # A SINTAX record carries no identity/coverage; the cells stay empty, never "0.00".
+        from databases.taxonomy_runner import _build_hits_rows
+
+        rows = _build_hits_rows({"OTU1": [{"source": "SILVA", "species": "X", "confidence": "0.9"}]}, "OTU")
+        self.assertEqual(rows[0]["identity"], "")
+        self.assertEqual(rows[0]["coverage"], "")
+
+    # ---- 4e: the class rank is spelled `class` in the cells, not `class_` --------------
+    def test_class_rank_is_spelled_class_in_hits_and_assignments(self):
+        from databases.taxonomy_runner import _build_assignment_rows, _build_hits_rows
+
+        records = {"OTU1": [self._class_record("NCBI", "Insecta", "90")]}
+        self.assertEqual(_build_hits_rows(records, "OTU")[0]["rank"], "class")
+        self.assertEqual(_build_assignment_rows(records)[0]["rank"], "class")
+        # the taxon still resolves (internal lookup key stays class_)
+        self.assertEqual(_build_hits_rows(records, "OTU")[0]["taxon"], "Insecta")
+
+    def test_conflict_levels_spell_class_not_class_underscore(self):
+        from databases.taxonomy_runner import _build_conflict_report
+
+        records = {"OTU1": [self._class_record("SILVA", "Insecta"), self._class_record("PR2", "Arachnida")]}
+        conflict = _build_conflict_report(records)[0]
+        self.assertIn("class", conflict["conflict_levels"].split(","))
+        self.assertNotIn("class_", conflict["conflict_levels"].split(","))
