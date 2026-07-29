@@ -1147,9 +1147,52 @@ def _collect_blast_records(source: str, table_path: Optional[Path], outfmt: str)
 	return rows_by_asv
 
 
+def _feature_abundances(abundance_matrix_path: Optional[Path]) -> Dict[str, int]:
+	"""Total reads per feature, from the canonical abundance matrix — read, never recomputed.
+
+	The single source of abundance is the mapping table (``otu_matrix.csv`` / the ASV
+	equivalent): the ``--usearch_global --otutabout`` counts every other abundance-derived
+	table already uses (DEVLOG 'Single source of abundance truth'). Reading from it here,
+	rather than counting reads a second way, is what stops ordering the deliverable from
+	introducing a second accounting — the Phase-2 lesson. Returns ``{}`` when no matrix is
+	available, so the tables still build (unordered, empty abundance) instead of failing.
+	"""
+	if not abundance_matrix_path or not Path(abundance_matrix_path).exists():
+		return {}
+	from analysis.sample_comparison import _load_matrix
+
+	feature_ids, _samples, values = _load_matrix(Path(abundance_matrix_path))
+	return {fid: int(round(sum(row))) for fid, row in zip(feature_ids, values)}
+
+
+def _abundance_cells(feature_id: str, totals: Dict[str, int], grand_total: int) -> Dict[str, str]:
+	"""``reads`` and ``sample_pct`` for one feature, both empty when abundance is unknown.
+
+	``sample_pct`` is the feature's share of the run's total mapped reads, rounded to two
+	decimals at birth — a new column is written clean rather than left at raw precision for
+	a later pass to fix.
+	"""
+	reads = totals.get(feature_id)
+	if reads is None:
+		return {"reads": "", "sample_pct": ""}
+	pct = f"{100.0 * reads / grand_total:.2f}" if grand_total else ""
+	return {"reads": str(reads), "sample_pct": pct}
+
+
+def _abundance_order(feature_ids, totals: Dict[str, int]):
+	"""Feature ids ordered by abundance descending, id ascending as a stable tie-break.
+
+	The tie-break keeps the output deterministic (byte-reproducible golden) when two
+	features carry the same read count.
+	"""
+	return sorted(feature_ids, key=lambda fid: (-totals.get(fid, 0), fid))
+
+
 HITS_COLUMNS = [
 	"ASV_ID",
 	"feature_type",
+	"reads",
+	"sample_pct",
 	"hit_rank",
 	"source",
 	"rank",
@@ -1167,16 +1210,27 @@ HITS_COLUMNS = [
 ]
 
 
-def _build_hits_rows(hits_by_asv: Dict[str, List[dict]], feature_type: str = "") -> List[Dict[str, str]]:
+def _build_hits_rows(hits_by_asv: Dict[str, List[dict]], feature_type: str = "", abundances: Optional[Dict[str, int]] = None) -> List[Dict[str, str]]:
 	"""Every candidate hit for every feature, ranked best-first within each feature.
 
 	Ranking is by % identity then query coverage, so ``hit_rank == 1`` is the best
 	supported call. The runners-up are kept deliberately: the top BLAST hit is often
 	an unannotated environmental sequence while hit 2 or 3 is the named species the
 	user actually needs, and that choice belongs to them, not to us.
+
+	Features are emitted in DESCENDING abundance — the supervisors asked for "the best
+	OTUs", and without read counts there is no way to rank them. Ordering is by FEATURE,
+	with every hit of a feature kept together and its ``hit_rank`` order intact: sorting
+	the 1064 rows loose by abundance would shatter the grouping that makes the table
+	readable. When no abundance is known the order falls back to feature id.
 	"""
+	totals = abundances or {}
+	grand_total = sum(totals.values())
 	rows: List[Dict[str, str]] = []
-	for asv_id, hits in sorted(hits_by_asv.items()):
+	for asv_id in _abundance_order(hits_by_asv.keys(), totals):
+		hits = hits_by_asv[asv_id]
+		abundance_cells = _abundance_cells(asv_id, totals, grand_total)
+
 		def _sort_key(record: dict):
 			identity = _to_float(record.get("similarity"))
 			coverage = _to_float(record.get("coverage"))
@@ -1193,6 +1247,8 @@ def _build_hits_rows(hits_by_asv: Dict[str, List[dict]], feature_type: str = "")
 				{
 					"ASV_ID": asv_id,
 					"feature_type": feature_type,
+					"reads": abundance_cells["reads"],
+					"sample_pct": abundance_cells["sample_pct"],
 					"hit_rank": index,
 					"source": record.get("source", ""),
 					"rank": rank,
@@ -1219,6 +1275,8 @@ def _build_hits_rows(hits_by_asv: Dict[str, List[dict]], feature_type: str = "")
 SUMMARY_COLUMNS = [
 	"ASV_ID",
 	"feature_type",
+	"reads",
+	"sample_pct",
 	"consensus_taxon",
 	"consensus_rank",
 	"consensus_reliability",
@@ -1261,24 +1319,31 @@ def _record_taxon(record: Optional[dict]) -> str:
 	return _safe_text(record.get(rank)) if rank != "unassigned" else ""
 
 
-def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: List[Dict[str, str]], feature_type: str = "") -> List[Dict[str, str]]:
+def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: List[Dict[str, str]], feature_type: str = "", abundances: Optional[Dict[str, int]] = None) -> List[Dict[str, str]]:
 	"""One row per feature: consensus call plus the best hit of EACH evidence family.
 
 	Derived from the same in-memory records and consensus rows the other taxonomy tables
 	are — this file is written by the pipeline and rendered as-is by the UI, so the screen
-	and the download cannot diverge.
+	and the download cannot diverge. Ordered by descending abundance, same single source
+	as the hits table, so the two deliverables agree on which feature matters most.
 	"""
 	by_id = {row.get("ASV_ID"): row for row in consensus_rows}
+	totals = abundances or {}
+	grand_total = sum(totals.values())
 	rows: List[Dict[str, str]] = []
-	for asv_id, records in sorted(records_by_asv.items()):
+	for asv_id in _abundance_order(records_by_asv.keys(), totals):
+		records = records_by_asv[asv_id]
 		consensus_row = by_id.get(asv_id, {})
 		taxon, rank = _consensus_call(consensus_row)
 		align = best_alignment_record(records)
 		sintax = best_sintax_record(records)
+		abundance_cells = _abundance_cells(asv_id, totals, grand_total)
 		rows.append(
 			{
 				"ASV_ID": asv_id,
 				"feature_type": feature_type,
+				"reads": abundance_cells["reads"],
+				"sample_pct": abundance_cells["sample_pct"],
 				"consensus_taxon": taxon,
 				"consensus_rank": rank,
 				"consensus_reliability": _safe_text(consensus_row.get("Reliability")),
@@ -1597,16 +1662,21 @@ def run_taxonomy_pipeline(
 	conflict_columns = ["ASV_ID", "conflict_levels", "sources"]
 	_write_csv(conflict_report, conflicts, conflict_columns)
 
+	# Read once from the canonical abundance matrix and shared by both deliverables, so
+	# the hits and summary tables order features by the same read counts and cannot
+	# disagree on which OTU matters most.
+	feature_abundances = _feature_abundances(abundance_matrix_path)
+
 	# Every candidate hit, ranked best-first per feature. This is the table the user
 	# sorts, filters and picks the runner-up from.
-	_write_csv(hits_path, _build_hits_rows(hits_by_asv, feature_type), HITS_COLUMNS)
+	_write_csv(hits_path, _build_hits_rows(hits_by_asv, feature_type, feature_abundances), HITS_COLUMNS)
 	files["taxonomy_hits_csv"] = hits_path
 
 	# One row per feature: the consensus call and the best hit of each evidence family,
 	# in separate columns. Written here, from the same records, so the UI can render this
 	# file rather than recompute it — one source, two consumers.
 	summary_path = output_dir / "taxonomy_summary.csv"
-	_write_csv(summary_path, _build_summary_rows(records_by_asv, consensus_rows, feature_type), SUMMARY_COLUMNS)
+	_write_csv(summary_path, _build_summary_rows(records_by_asv, consensus_rows, feature_type, feature_abundances), SUMMARY_COLUMNS)
 	files["taxonomy_summary_csv"] = summary_path
 
 	# Per-source assignments carry the evidence (identity, coverage, confidence,

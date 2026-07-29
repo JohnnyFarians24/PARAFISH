@@ -1,5 +1,45 @@
 # DEVLOG
 
+## 2026-07-24 — Task 4c: the taxonomy tables carry read counts and order by them, from the ONE abundance source, with hits kept grouped.
+
+The supervisors asked for "the best OTUs"; the deliverable had no read counts, so there
+was no way to rank them or see which mattered. Both taxonomy tables now carry `reads` and
+`sample_pct` and are ordered by descending abundance.
+
+**Two things confirmed before touching anything, per instruction.**
+
+*The single source.* Abundance is read from `otu_matrix.csv` — the `--usearch_global
+--otutabout` mapping table that DEVLOG 'Single source of abundance truth' (2026-07-16)
+established as canonical and that every other abundance-derived table already uses.
+`_feature_abundances` reads it through the same `_load_matrix` loader; nothing is
+recounted. Ordering the deliverable therefore introduces no second accounting — the exact
+Phase-2 failure this guards against. Verified on the real matrix: OTU1 154 152 reads
+(99.95%), the tail 2–12 reads each, grand total 154 223.
+
+*The grouping.* `taxonomy_hits` is 1064 rows over 9 features (OTU1 alone has 151 ranked
+hits). "Order by abundance" is by FEATURE, each feature's hits kept contiguous and their
+`hit_rank` order intact — sorting the 1064 rows loose by abundance would shatter the
+grouping that makes the table readable. Measured and pinned by a test
+(`test_hit_rank_order_is_preserved_within_a_feature`).
+
+`reads` and `sample_pct` sit right after `feature_type` in both tables; `sample_pct` is
+rounded to two decimals at birth (a new column written clean, not left raw for 4d). Both
+builders take the abundance dict as an optional arg (default empty → unordered, blank
+cells, no crash), so the existing callers and tests keep working. Read once in
+`run_taxonomy_pipeline` and shared, so hits and summary cannot disagree on which OTU is
+biggest. Seven unit tests, seen to fail on old code (cache cleared first).
+
+**Golden, per the accumulation strategy (user, 2026-07-24): NOT re-frozen mid-Task-4.**
+4c changes `taxonomy_hits` AND `taxonomy_summary` in ALL THREE datasets (unlike 4a,
+`fixture_asv` IS affected here — new columns + reordering, even though its ASV run has no
+alignment rows). The whole of Task 4 accumulates into one re-baseline. Consequence: two
+in-suite byte-exact golden proofs (`SummaryGoldenTests`) now fail, because they assert the
+builder reproduces the PRE-4c frozen `fixture_asv` summary. Suspended with `@unittest.skip`
+tied to the obligation — NOT weakened: the byte-exact contract returns intact once the
+golden is regenerated, and re-enabling them (plus feeding the helper the ASV abundance
+matrix so it reproduces the abundance-ordered summary) is part of the re-freeze. Added to
+[[parafish-golden-refreeze-obligation]].
+
 ## 2026-07-24 — Task 4a: confidence stops carrying the bitscore. Fix + unit-proven; golden for two files is KNOWN-STALE pending the real run (documented, not silent).
 
 `taxonomy_hits.csv` reported the BLAST bitscore in its `confidence` column — an alignment
