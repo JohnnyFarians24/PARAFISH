@@ -1,5 +1,96 @@
 # DEVLOG
 
+## 2026-07-24 — DIAGNOSTIC SESSION (no code changed): the mutation sweep, the three-axis status metric, and the multi-source consensus that has never actually run.
+
+No code was written this session. It was a measurement of where the platform stands, and
+the measurement moved the map — downward, as this project keeps finding when it finally
+looks.
+
+**The mutation sweep. Five scientific parameters, each changed, the full suite re-run,
+restored. The question was not "does a test fail" but WHICH test, because not every red
+protects the value.**
+
+| Parameter | Value | One-source mutation | COORDINATED (all sources) | Pinned? |
+|---|---|---|---|---|
+| clustering identity `id` | 0.97 | **GREEN** | GREEN | **NO** |
+| `sintax_cutoff` | 0.8 | red (divergence guard only) | **GREEN** | **NO** |
+| PEAR `min_overlap` | 10 | red (divergence guard only) | **GREEN** | **NO** |
+| `minlen` | 50 | red (divergence + value) | RED | yes |
+| `MIN_UNIQUE_SIZE` | 1 | red (divergence + value + behaviour) | RED | yes |
+
+The clustering identity 0.97 is the least protected of all, worse than
+`MIN_REFERENCE_LENGTH` ever was: **three** literal sources (`models.py:138`,
+`vsearch_runner.py:294` and `:440`), a Setup control that is a *Slider* and so escapes
+even the single-source divergence guard (which only scans `dcc.Input`), and zero tests on
+the value. Changed 0.97 → 0.90 and the suite stayed 543-green. This is the parameter the
+entire feature count rests on — whether two OTUs collapse — and it is unpinned three times
+over.
+
+The `sintax_cutoff` and `min_overlap` reds are weaker than they look: they come ONLY from
+the divergence guard, which catches the two sources drifting apart, not a wrong value.
+Proven — changed `sintax_cutoff` in BOTH the page and `models.py` together (how a user
+actually edits a default) and it went fully green. Only `minlen` and `min_unique_size`
+are genuinely value-pinned, and both were touched THIS week, which is why they have value
+tests. The rule confirms itself: the pinned parameters are the ones we edited; the ones
+untouched for months are the exposed ones.
+
+**Why this is the gravest incarnation of the pattern.** The Methods section of the paper
+will state these numbers as the basis of reproducibility. Today, anyone — me, the user, a
+supervisor — can change the clustering threshold or the singleton floor and the suite goes
+green, so the Methods would silently cease to describe what the code does with nothing to
+announce the divergence. Same shape as `verify.py` check (f) (coherence is not
+correctness) and `golden.py check` (a faithful diff of two stale files); this is the third
+instrument, and it sits under the paper's central claim.
+
+**DECIDED — next session, before Task 4a: the five pins.** One test per parameter fixing
+the literal value, each seen to fail by mutating the value, exactly as `MIN_REFERENCE_LENGTH`
+now is. Start with 0.97. A day's work, and it closes the gap the paper's reproducibility
+rests on. Then resume 4a → 4c → (4b+4d+4e).
+
+**Inventory, measured against the code, in three categories that do NOT coincide.**
+
+*Code correction (known bugs to close):* Task 4 confirmed fully intact — `confidence ==
+bitscore` in 1046/1064 rows of the real golden, column still `ASV_ID` with no
+`feature_id`, no abundance column. The five (really three) unpinned parameters. The
+`_param_label` tooltip sweep. All *ready now*. `min_overlap` 10→50 is blocked (golden
+re-freeze + `_real` needs RAM + user decision). `_infer_marker_from_name` without a UI
+control is a user decision.
+
+*Unproven (code written, not exercised on real data):* the ASV **phylo** branch (golden
+covers analysis/taxonomy/export, not phylo; `fixture_asv` has 3 tips, phylo needs ≥4); the
+ASV ordination/map (same ≥4 blocker); BOLD's positive path (test exists but is SKIPPED
+here — duckdb absent); Q2 host attribution (needs a run that finishes Databases — RAM);
+**and the multi-source consensus, which has its own entry below.**
+
+*Out of code:* the push is NOT done — 10 commits sit ahead of `origin/main`; clean-clone
+reproducibility (README is ~1 setup line); the golden `--rerun` mode; the paper. Two
+corrections to the remembered state, measured: `update_qc_stats` is implemented and wired
+(`callbacks_qc.py:243`), not open; and the push is outstanding, not done.
+
+**The three axes, honestly, each with the caveat that it dropped today:**
+- **Correctness** (known bugs closed): **~70%.** Was ~80% this morning; the sweep opened
+  three holes. Task 4 (six items) is entirely open.
+- **Coverage** (all code exercised on real data): **~50%.** The weakest axis and the most
+  hardware-blocked. This is where the real work hides.
+- **Product** (docs, clean-clone reproducibility, validation for others): **~30%.** Mostly
+  *ready to start* rather than blocked — it just has not been begun.
+
+## 2026-07-24 — PAPER-CRITICAL, and stated plainly: the multi-source consensus SILVA+PR2+NCBI has NEVER run with enough RAM. Not "a branch to exercise" — the feature the paper presents as its novelty.
+
+Confirmed explicitly, because it is easy to file this next to the other unproven branches
+and it does not belong there. Everything that has run the multi-source taxonomy consensus
+has run it on **fixtures** or on **single-source** configurations. The path where SILVA,
+PR2 and NCBI are all live at once, their assignments reconciled into one consensus per
+feature, has never executed on real data at full depth — it is what the OOM killer has
+been terminating on the 2.8 GB box all along.
+
+That path is the central contribution of section 2.6 of the paper. Its first real
+execution will be on the new machine, and **there is no possible submission before that
+run exists and the user has looked at its output.** Not because a test is red — because
+the thing being written about has not yet happened. This is the single item that most
+separates "the code is written" from "the platform does what the paper claims", and it is
+gated purely on hardware with sufficient RAM.
+
 ## 2026-07-24 — RULE: changing a test's FIXTURE is not changing its ASSERTION. And a floor with no boundary test has no proven value.
 
 **The rule, because the question will come up again.** Task 3 added sequence validation
