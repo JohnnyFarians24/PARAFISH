@@ -259,7 +259,7 @@ def register_callbacks(app: Any) -> None:
 def _zip_download(run_dir: Path):
     import io
 
-    from core.export import build_run_zip
+    from core.export import build_run_zip, render_provenance
     from core.run_registry import load_run_state
 
     state = load_run_state(run_dir)
@@ -270,7 +270,13 @@ def _zip_download(run_dir: Path):
         "databases": state.get("db_record"),
         "phylo": state.get("phylo_record"),
     }
-    buf: io.BytesIO = build_run_zip(run_dir.name, stage_outputs)
+    # The recipe travels with the deliverable: render the run_config progress.json already
+    # carries (never re-collected) plus the tool versions, so the ZIP is self-describing.
+    provenance = render_provenance(
+        state.get("run_config") or {},
+        [(tool, version) for tool, version, _ in _resolve_tool_versions()],
+    )
+    buf: io.BytesIO = build_run_zip(run_dir.name, stage_outputs, provenance_text=provenance)
     return dcc.send_bytes(buf.getvalue(), f"{run_dir.name}.zip")
 
 
@@ -420,12 +426,43 @@ _TOOL_VERSIONS = [
 ]
 
 
-def _reproducibility_block(run_dir: Path, state: dict, run_config_data: Optional[dict]) -> str:
-    """A methods-section paragraph the user can paste into a paper."""
+def _resolve_tool_versions() -> list[tuple[str, str, Optional[str]]]:
+    """``(tool, version, resolved_path)`` for each pipeline binary.
+
+    Resolved from the CONFIGURED path (``core.config``), NOT ``$PATH``: the pipeline runs
+    the binary those settings point at, and reporting whatever ``which`` finds would put a
+    version in a paper that never touched the data (on this box $PATH's blastn is 2.9.0
+    while the pipeline uses 2.17). One resolver, so the Results block and the ZIP's
+    PROVENANCE can never disagree on which versions a run used.
+    """
     import re
     import shutil
     import subprocess
 
+    import core.config as tool_config
+
+    resolved_versions: list[tuple[str, str, Optional[str]]] = []
+    for tool, setting, flag, pattern in _TOOL_VERSIONS:
+        path = getattr(tool_config, setting, "") or ""
+        resolved = shutil.which(path) or (path if Path(path).is_file() else None)
+        if not resolved:
+            resolved_versions.append((tool, "não instalado", None))
+            continue
+        try:
+            # FastTree has no version flag: it prints it in its banner on a bare call.
+            argv = [resolved, flag] if flag else [resolved]
+            out = subprocess.run(argv, capture_output=True, text=True, timeout=15, input="")
+            stream = f"{out.stdout or ''}\n{out.stderr or ''}"
+            match = re.search(pattern, stream)
+            version = match.group(1) if match else "instalado (versão não detetada)"
+        except Exception:
+            version = "instalado (versão não detetada)"
+        resolved_versions.append((tool, version, resolved))
+    return resolved_versions
+
+
+def _reproducibility_block(run_dir: Path, state: dict, run_config_data: Optional[dict]) -> str:
+    """A methods-section paragraph the user can paste into a paper."""
     config = run_config_data or {}
     lines = [
         "PARAFISH — bloco de reprodutibilidade",
@@ -439,24 +476,11 @@ def _reproducibility_block(run_dir: Path, state: dict, run_config_data: Optional
         "-" * 46,
     ]
 
-    import core.config as tool_config
-
-    for tool, setting, flag, pattern in _TOOL_VERSIONS:
-        path = getattr(tool_config, setting, "") or ""
-        resolved = shutil.which(path) or (path if Path(path).is_file() else None)
-        if not resolved:
+    for tool, version, resolved in _resolve_tool_versions():
+        if resolved is None:
             lines.append(f"  {tool:10s} não instalado")
-            continue
-        try:
-            # FastTree has no version flag: it prints it in its banner on a bare call.
-            argv = [resolved, flag] if flag else [resolved]
-            out = subprocess.run(argv, capture_output=True, text=True, timeout=15, input="")
-            stream = f"{out.stdout or ''}\n{out.stderr or ''}"
-            match = re.search(pattern, stream)
-            version = match.group(1) if match else "instalado (versão não detetada)"
-        except Exception:
-            version = "instalado (versão não detetada)"
-        lines.append(f"  {tool:10s} {version:12s} {resolved}")
+        else:
+            lines.append(f"  {tool:10s} {version:12s} {resolved}")
 
     lines += ["", "Parâmetros", "-" * 46]
     for section in ("trimmomatic_params", "pear_params", "vsearch_params", "dada2_params", "phylo_params"):

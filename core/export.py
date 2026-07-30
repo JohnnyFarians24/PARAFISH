@@ -107,10 +107,61 @@ def _add_metrics(zf, seen: set, run_id: str, stage: str, metrics_files: dict) ->
         _write(zf, seen, path, parts)
 
 
-def build_run_zip(run_id: str, stage_outputs: dict) -> io.BytesIO:
+def render_provenance(config: dict, tool_versions=None) -> str:
+    """A human-readable recipe for a run, RENDERED from the run_config block progress.json
+    already carries (``_run_provenance``) — a legible view of the single source, never a
+    second collection that could drift from it.
+
+    Machine-readable provenance already lives in progress.json; the value of THIS file is
+    being person-readable, so a supervisor who opens the ZIP reads "Fontes: SILVA, PR2,
+    NCBI · Marcador: COI" rather than a JSON dump. It ships INSIDE the deliverable ZIP so
+    the recipe travels with the results instead of staying in the app.
+
+    ``tool_versions`` is a list of ``(tool, version)`` — reproducibility is which VSEARCH /
+    BLAST built the run, not only which parameters. They are resolved from the pipeline's
+    configured binaries at export time; when none can be resolved the file says so plainly
+    rather than looking complete without them.
+    """
+    config = config or {}
+
+    if not config:
+        recipe = ["  (a receita não foi registada nesta run — anterior ao registo de", "   proveniência; runs novas gravam-na no progress.json.)"]
+    else:
+        sources = ", ".join(str(s).upper() for s in (config.get("db_sources") or [])) or "—"
+        markers = ", ".join(str(m) for m in (config.get("markers") or [])) or "—"
+        primers = config.get("primers") or {}
+        recipe = [
+            f"  Fontes de referência : {sources}",
+            f"  Marcador(es)         : {markers}",
+            f"  Método de análise    : {config.get('analysis_method', '—')}",
+            f"  Ramo                 : {config.get('branch', '—')}",
+            f"  min_unique_size      : {config.get('min_unique_size', '—')}",
+            f"  Primers  fwd         : {primers.get('fwd') or '—'}",
+            f"  Primers  rev         : {primers.get('rev') or '—'}",
+            f"  NCBI                 : {config.get('ncbi_mode', '—')}",
+        ]
+
+    lines = ["PARAFISH — proveniência da run", "=" * 46, "", "Receita", "-" * 46, *recipe, "", "Versões das ferramentas", "-" * 46]
+    if tool_versions:
+        lines += [f"  {tool:12s} {version}" for tool, version in tool_versions]
+    else:
+        lines += [
+            "  (não resolvidas neste ambiente — lacuna conhecida)",
+            "  As versões são lidas dos binários configurados no momento da",
+            "  exportação; sem elas a receita está incompleta para reprodução.",
+        ]
+    return "\n".join(lines) + "\n"
+
+
+def build_run_zip(run_id: str, stage_outputs: dict, provenance_text: str | None = None) -> io.BytesIO:
     buf = io.BytesIO()
     seen: set[str] = set()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        # The recipe travels WITH the results: a supervisor opening the ZIP can read how the
+        # run was made, not just what it produced. Rendered from the run_config in
+        # progress.json (see render_provenance), so it is a view of the single source.
+        if provenance_text:
+            zf.writestr(f"{run_id}/PROVENANCE.txt", provenance_text)
         for stage in STAGE_ORDER:
             record = stage_outputs.get(stage) or {}
             outputs = record.get("outputs") or {}

@@ -1,5 +1,41 @@
 # DEVLOG
 
+## 2026-07-30 — PROVENANCE.txt: the measurement dissolved the old task and found the real one — the supervisor's ZIP shipped results without the recipe.
+
+The item was "docs promise a PROVENANCE.txt, no run emits it." Measured before building, and
+BOTH halves were stale: the README no longer promises one (the overview that did was cleaned
+up), and the machine-readable recipe now lives in progress.json (`_run_provenance`: db_sources,
+markers, min_unique_size, primers, branch, ncbi_mode — written at init, tested). So there was
+no lie to fix and no content to collect. The fourth "known item" to change shape when measured.
+
+**But the measurement found the real gap.** `build_run_zip` — the per-run ZIP a supervisor
+downloads — bundles outputs and metric tables and NOT the recipe. Neither progress.json nor
+the run_config reaches it (its signature never even received the config). A supervisor opening
+the ZIP had the tables without which sources, marker, or parameters produced them. Same
+principle as sintax_status: the explanation has to travel with the deliverable, not stay in
+the app (where a full reproducibility block was already rendered, for the screen only).
+
+**Rendered, not re-collected.** `render_provenance` renders the run_config block progress.json
+already carries — a legible view of the single source, so it can never drift from it — into a
+person-readable `PROVENANCE.txt` written into the ZIP. "Fontes: SILVA, PR2, NCBI · Marcador:
+COI", not a JSON dump (the machine-readable copy already exists; a re-dump would add nothing).
+Sourced from the persisted block, not the session store, so it survives a restored session; a
+run made before provenance was recorded degrades to an honest "receita não registada" note
+rather than a blank.
+
+**Versions, honestly.** Reproducibility is which VSEARCH/BLAST, not only which parameters. A
+version resolver already existed inline in the Results block; extracted to `_resolve_tool_versions`
+(one resolver, so screen and ZIP can never disagree) and fed to the render. Resolved from the
+pipeline's CONFIGURED binaries, not $PATH. When none resolve, the file declares the gap
+("lacuna conhecida") instead of looking complete — a supervisor must not read parameters
+without versions as the whole recipe.
+
+Five tests: the recipe axes are human-readable (not JSON), missing versions/recipe are
+declared, and the file enters the ZIP CARRYING the axes — seen to fail against the pre-fix ZIP
+(`PROVENANCE.txt` absent, red for the right reason). 576 pass. No golden (progress.json and the
+ZIP are not frozen layers). With this, the small items measurable here are closed; what remains
+is all RAM-machine: the multi-source run, the golden re-freeze, and the ASV-data proofs.
+
 ## 2026-07-30 — The Analysis "Consensus" card was another looks-alive-does-nothing, found by measuring a side observation instead of filing it.
 
 While measuring whether `_update_analysis_stats` was open (it was closed — the store is
