@@ -37,8 +37,13 @@ class AnalysisStatsRestoreTests(unittest.TestCase):
         (run_dir / "analysis" / "pooled").mkdir(parents=True, exist_ok=True)
         fasta = run_dir / "analysis" / "pooled" / "otus.fasta"
         fasta.write_text(_FASTA, encoding="utf-8")
-        # A FINISHED run whose analysis record carries the absolute FASTA path — the shape
-        # restore_run_state hands back to store-analysis-outputs on a fresh tab.
+        # The consensus is a DATABASES-stage output, in its per-feature-set (taxonomy_by_set)
+        # location on disk, carried by db_record — not by the analysis record.
+        (run_dir / "databases" / "otu").mkdir(parents=True, exist_ok=True)
+        consensus = run_dir / "databases" / "otu" / "taxonomy_consensus.csv"
+        consensus.write_text("feature_id,Consensus_Genus\nOTU1,Diplostomum\n", encoding="utf-8")
+        # A FINISHED run whose stage records carry the absolute paths — the shape
+        # restore_run_state hands back to the session stores on a fresh tab.
         (run_dir / "progress.json").write_text(
             json.dumps({
                 "run_id": run_id,
@@ -46,6 +51,10 @@ class AnalysisStatsRestoreTests(unittest.TestCase):
                 "analysis_record": {
                     "status": "success",
                     "outputs": {"combined_fasta_vsearch": str(fasta)},
+                },
+                "db_record": {
+                    "status": "success",
+                    "outputs": {"taxonomy_by_set": {"otu": {"files": {"taxonomy_consensus_csv": str(consensus)}}}},
                 },
             }),
             encoding="utf-8",
@@ -72,6 +81,36 @@ class AnalysisStatsRestoreTests(unittest.TestCase):
         from ui.callbacks_analysis import _analysis_stat_values
 
         self.assertEqual(_analysis_stat_values({}, {})["otu"], "—")
+
+    def test_restored_session_lights_the_consensus_card_from_the_databases_store(self):
+        # The crossed wire: before the fix the card read store-ANALYSIS-outputs, which never
+        # carries the consensus, so this branch could never fire even with the file on disk
+        # and db_record repopulated. Seen to fail against that code, "—" != "ready".
+        from ui.callbacks_analysis import _analysis_stat_values
+        from ui.runtime_state import restore_run_state
+
+        restored = restore_run_state(self.project_data)
+        values = _analysis_stat_values(
+            restored["analysis"], restored["run_config"], restored["databases"], self.project_data
+        )
+        self.assertEqual(values["consensus"], "ready", "consensus exists + db_record repopulated, yet the card stayed pending")
+
+    def test_flat_pre_feature_set_consensus_shape_also_lights(self):
+        # A run from before feature sets kept a single FLAT taxonomy.files entry (no
+        # taxonomy_by_set). The card must light for that shape too, via the same canonical
+        # resolver — reading only one shape would light for OTU and stay dead elsewhere.
+        from ui.callbacks_analysis import _analysis_stat_values
+
+        flat = self.tmp / "flat_consensus.csv"
+        flat.write_text("feature_id\nOTU1\n", encoding="utf-8")
+        db_store = {"outputs": {"taxonomy": {"files": {"taxonomy_consensus_csv": str(flat)}}}}
+        self.assertEqual(_analysis_stat_values({}, {}, db_store, None)["consensus"], "ready")
+
+    def test_consensus_stays_pending_when_none_exists(self):
+        from ui.callbacks_analysis import _analysis_stat_values
+
+        values = _analysis_stat_values({}, {"output_dir": str(self.tmp / "nope")}, {}, None)
+        self.assertEqual(values["consensus"], "—")
 
 
 if __name__ == "__main__":

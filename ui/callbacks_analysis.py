@@ -99,15 +99,22 @@ def _download_link(path_value, label: str):
     return html.Div(html.A(f"{label}: {path.name}", href=f"/runs/{rel.as_posix()}", target="_blank"), className="download-row")
 
 
-def _analysis_stat_values(analysis_data, run_config_data) -> dict:
+def _analysis_stat_values(analysis_data, run_config_data, databases_data=None, project_data=None) -> dict:
     """The three Analysis KPI values (OTUs / ASVs / Consensus) as raw strings + hints.
 
-    Split out of the callback so a restored session can be tested directly — the values
-    come from the stage record in ``store-analysis-outputs``, which ``restore_run_state``
+    Split out of the callback so a restored session can be tested directly — the OTU/ASV
+    counts come from the stage record in ``store-analysis-outputs``, which ``restore_run_state``
     repopulates from disk with the run's file paths. A count that reads an absolute FASTA
     path the store carries is store-only but survives restore, because the store is rebuilt
     faithfully; the test locks that chain so a future change that stops repopulating the
     record fails loudly instead of silently blanking the cards.
+
+    The Consensus card reads the DATABASES store, not this one: the consensus is a
+    Databases-stage output and never reaches ``store-analysis-outputs``, so the old read of
+    ``analysis_outputs.taxonomy`` could never fire its own ``"ready"`` branch — a crossed
+    wire that made the card looks-alive-does-nothing. Resolved through the canonical
+    ``_find_consensus_csv`` (per-feature-set → disk → flat pre-feature-set shape), across
+    BOTH feature sets, so it never lights for OTU while staying dead for ASV.
     """
     from core.utils import _count_fasta_seqs
 
@@ -133,9 +140,11 @@ def _analysis_stat_values(analysis_data, run_config_data) -> dict:
     else:
         asv_value, asv_hint = "off", "DADA2 not selected"
 
-    tax_out = outputs.get("taxonomy") or {}
-    consensus = (tax_out.get("files") or {}).get("taxonomy_consensus_csv") or ""
-    if consensus and Path(consensus).exists():
+    from ui.callbacks_databases import _find_consensus_csv
+
+    db_outputs = _normalize_store(databases_data).get("outputs") or {}
+    run_output_dir = _resolve_output_dir(run_config_data, project_data)
+    if any(_find_consensus_csv(db_outputs, run_output_dir, feature_set) for feature_set in ("otu", "asv")):
         consensus_value, consensus_hint = "ready", ""
     else:
         consensus_value, consensus_hint = "—", "runs in Databases stage"
@@ -570,16 +579,18 @@ def register_callbacks(app: Any) -> None:
         Output("analysis-stat-asvs", "children"),
         Output("analysis-stat-consensus", "children"),
         Input("store-analysis-outputs", "data"),
+        Input("store-databases-outputs", "data"),
         State("store-run-config", "data"),
+        State("store-project", "data"),
     )
-    def _update_analysis_stats(analysis_data, run_config_data):
+    def _update_analysis_stats(analysis_data, databases_data, run_config_data, project_data):
         def _card(value, label, hint=""):
             children = [html.Div(str(value), className="stat-value"), html.Div(label, className="stat-label")]
             if hint:
                 children.append(html.Div(hint, className="stat-hint"))
             return children
 
-        values = _analysis_stat_values(analysis_data, run_config_data)
+        values = _analysis_stat_values(analysis_data, run_config_data, databases_data, project_data)
         return (
             _card(values["otu"], "OTUs", values["otu_hint"]),
             _card(values["asv"], "ASVs", values["asv_hint"]),

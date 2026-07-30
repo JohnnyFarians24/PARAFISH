@@ -1,5 +1,32 @@
 # DEVLOG
 
+## 2026-07-30 — The Analysis "Consensus" card was another looks-alive-does-nothing, found by measuring a side observation instead of filing it.
+
+While measuring whether `_update_analysis_stats` was open (it was closed — the store is
+faithfully repopulated on restore, the `update_qc_stats` shape again), a side observation
+surfaced: the "Consensus" stat card read `outputs.taxonomy` from the **analysis** store.
+The instinct is to note it and move on. Measured instead — and it was a crossed wire.
+
+The card has an explicit `if consensus exists: "ready"` branch — positive intent to light
+up. But the consensus is a **Databases**-stage output; the three store writers keep the
+analysis and databases stores separate, and the analysis record's `taxonomy.consensus` is
+always None. So the `"ready"` branch was **structurally unreachable**: the card could only
+ever show "runs in Databases stage", even with a consensus sitting on disk. Looks-alive,
+does-nothing — the seventh-plus instance in this project.
+
+**The trap inside the fix.** Wiring it to the databases store is not enough: the db record
+has TWO shapes, and the flat top-level `taxonomy.files` does **not** carry the consensus at
+all (measured: its files are the sintax/blast/status logs) — only `taxonomy_by_set[set]`
+does. A naive read of one shape would light for OTU and stay dead for feature sets — trading
+an unreachable branch for a half-reachable one, which is worse because it looks like it
+works. Fixed by reusing the canonical `_find_consensus_csv` (per-set → disk → flat), across
+both feature sets. Seen to fail against the old read for the exact reason (consensus on disk
++ db_record repopulated, card still "—"); the flat-shape path is covered too. 571 pass.
+
+Filed here because the lesson is the method, not the card: this defect did not jump out —
+it was found because a side observation during a measurement was measured rather than
+shelved. The next one may not be visible at all.
+
 ## 2026-07-30 — Task 4f: the empty SINTAX columns explain themselves, at the table the reader opens — both surfaces.
 
 The summary's `sintax_source`/`sintax_taxon`/`sintax_confidence` columns are empty for
