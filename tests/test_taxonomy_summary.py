@@ -463,3 +463,47 @@ class DeliverableColumnRenamesTests(unittest.TestCase):
         conflict = _build_conflict_report(records)[0]
         self.assertIn("class", conflict["conflict_levels"].split(","))
         self.assertNotIn("class_", conflict["conflict_levels"].split(","))
+
+
+class SintaxStatusColumnTests(unittest.TestCase):
+    """4f: the summary always carries a ``sintax_status`` column that explains an empty
+    SINTAX cell, so "SILVA/PR2 did not run" is never mistaken for "the tool found nothing".
+    Its verdict is read from source_status.csv — the one place that knows a source crashed."""
+
+    def _summary(self, records, sintax_ran):
+        from databases.taxonomy_runner import _build_consensus_row, _build_summary_rows
+
+        consensus = [_build_consensus_row(fid, recs, "lca", "OTU") for fid, recs in sorted(records.items())]
+        return {r["feature_id"]: r for r in _build_summary_rows(records, consensus, "OTU", None, sintax_ran)}
+
+    def test_sintax_status_is_the_last_summary_column_and_always_present(self):
+        from databases.taxonomy_runner import SUMMARY_COLUMNS
+
+        self.assertEqual(SUMMARY_COLUMNS[-1], "sintax_status")
+
+    def test_feature_with_a_sintax_call_reads_ok(self):
+        records = {"OTU1": [{"source": "SILVA", "species": "Gadus morhua", "genus": "Gadus", "confidence": "0.95"}]}
+        self.assertEqual(self._summary(records, sintax_ran=True)["OTU1"]["sintax_status"], "ok")
+
+    def test_empty_when_sintax_ran_says_no_assignment(self):
+        # An alignment-only feature in a run where SINTAX DID run: the empty SINTAX cell means
+        # this feature got no k-mer call, not that SINTAX was absent.
+        records = {"OTU1": [{"source": "NCBI", "species": "Gadus morhua", "genus": "Gadus", "similarity": "99", "coverage": "100"}]}
+        self.assertEqual(self._summary(records, sintax_ran=True)["OTU1"]["sintax_status"], "sem atribuição SINTAX")
+
+    def test_empty_when_sintax_absent_points_to_source_status(self):
+        records = {"OTU1": [{"source": "NCBI", "species": "Gadus morhua", "genus": "Gadus", "similarity": "99", "coverage": "100"}]}
+        cell = self._summary(records, sintax_ran=False)["OTU1"]["sintax_status"]
+        self.assertIn("não corrido", cell)
+        self.assertIn("source_status.csv", cell)
+
+    def test_sintax_ran_is_read_from_the_source_status_report(self):
+        from databases.taxonomy_runner import _sintax_ran
+
+        self.assertTrue(_sintax_ran([{"source": "SILVA", "status": "ok"}]))
+        self.assertTrue(_sintax_ran([{"source": "PR2", "status": "no_hits"}]))
+        # a crashed SINTAX source did NOT run — the whole point of source_status
+        self.assertFalse(_sintax_ran([{"source": "SILVA", "status": "failed"}]))
+        # aligners are not SINTAX, so their success does not count
+        self.assertFalse(_sintax_ran([{"source": "NCBI", "status": "ok"}, {"source": "BOLD", "status": "ok"}]))
+        self.assertFalse(_sintax_ran([]))

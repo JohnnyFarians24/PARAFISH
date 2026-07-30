@@ -1,5 +1,41 @@
 # DEVLOG
 
+## 2026-07-30 — Task 4f: the empty SINTAX columns explain themselves, at the table the reader opens — both surfaces.
+
+The summary's `sintax_source`/`sintax_taxon`/`sintax_confidence` columns are empty for
+every feature in any run where no SINTAX source contributed — a COI/BOLD-only run, or one
+where SILVA/PR2 were killed out-of-memory. Empty columns with no explanation read as a
+broken tool. The columns were already always present (fixed `SUMMARY_COLUMNS`); the missing
+piece was the *why*, reachable where the reader actually looks.
+
+**Measured before deciding where the explanation lives.** Two surfaces: the in-app rendered
+table (`_render_feature_summary`) and the downloaded CSV (`_download_summary`, a raw
+`send_file` the supervisor opens in Excel). A `_source_status_panel` already existed — but
+in a *different* section (`_render_db_visuals`), which the reader of the summary never
+connects to the empty columns. Of the three placements the user named, the README was ruled
+out (a separate file nobody associates); of the other two, a CSV header comment was
+disqualified by measurement — PARAFISH re-reads its own summary with `pd.read_csv` and has
+byte-exact golden proofs, so a comment line would corrupt the round-trip. That left a
+status column (travels with the CSV, parses cleanly, survives the read-back) and an in-app
+caption (seen by whoever prepares and sends the file). The user chose BOTH — the two
+surfaces have two different readers.
+
+**CSV, for the supervisor:** a trailing `sintax_status` column, per feature — `ok` when the
+feature has a k-mer call, `sem atribuição SINTAX` when SINTAX ran but this feature got none,
+and `SINTAX não corrido — ver source_status.csv` when no SINTAX source ran at all. The
+verdict is read from the *reconciled* `source_status` — the one place that already
+distinguishes a crashed source from one that found nothing (a `failed`/`skipped`/
+`not_applicable` source did NOT run; only `ok`/`no_hits` count). Never recomputed from a
+proxy. **In-app, for whoever sends it:** when the whole SINTAX column is empty, a caption
+plus the `source_status` panel now render inline at the summary table — the "why" and the
+deliverable on one screen, not a panel two sections away.
+
+Five tests pin the contract (all seen to fail against the stashed old builder, cache
+cleared): the column is last and always present, the three verdicts, and that `_sintax_ran`
+reads the status report rather than guessing. 566 pass, 5 skipped. Golden: the summary gains
+a column in all three datasets — added to the one Task-4 re-baseline, not re-frozen mid-task;
+the UI half needs no golden.
+
 ## 2026-07-30 — Task 4b+4d+4e: the deliverables identify features by `feature_id`, show identity/coverage to 2 decimals, and spell the class rank `class` — and the measurement corrected the task.
 
 Three cosmetic-sounding corrections to the taxonomy deliverables, in one pass: rename the

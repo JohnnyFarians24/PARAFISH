@@ -1306,6 +1306,11 @@ SUMMARY_COLUMNS = [
 	"sintax_source",
 	"sintax_taxon",
 	"sintax_confidence",
+	# Why the three sintax_* cells above are empty for this feature, so a reader never
+	# mistakes "SILVA/PR2 did not run" for "the tool found nothing". Always present (4f):
+	# an empty SINTAX column with no explanation reads as a broken tool, and the truth —
+	# which source ran, which crashed — lives in source_status.csv, which this points to.
+	"sintax_status",
 ]
 
 # Consensus columns from deepest to shallowest — the summary's single taxon call is the
@@ -1339,7 +1344,38 @@ def _record_taxon(record: Optional[dict]) -> str:
 	return _safe_text(record.get(rank)) if rank != "unassigned" else ""
 
 
-def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: List[Dict[str, str]], feature_type: str = "", abundances: Optional[Dict[str, int]] = None) -> List[Dict[str, str]]:
+# The k-mer (SINTAX) reference sources. NCBI and BOLD align; these three are the only ones
+# whose absence explains an empty sintax_* cell.
+_SINTAX_SOURCES = {"SILVA", "PR2", "CUSTOM"}
+
+
+def _sintax_ran(source_status: Optional[List[Dict[str, str]]]) -> bool:
+	"""Whether any SINTAX source actually produced a table this run.
+
+	Read from the reconciled per-source status report (source_status.csv), the one place
+	that already knows a source crashed (out-of-memory) rather than found nothing. A source
+	counts as having run only if it reached ``ok`` or ``no_hits`` — ``failed``/``skipped``/
+	``not_applicable`` mean no SINTAX evidence was ever produced, which is exactly the case
+	an empty sintax_* column must not be mistaken for "the tool found nothing".
+	"""
+	sintax = [
+		row for row in (source_status or [])
+		if (row.get("source") or "").strip().upper() in _SINTAX_SOURCES
+	]
+	return any((row.get("status") or "").strip().lower() in {"ok", "no_hits"} for row in sintax)
+
+
+def _sintax_status_cell(has_call: bool, sintax_ran: bool) -> str:
+	"""The per-feature sintax_status value (4f). Points at source_status.csv when SINTAX
+	produced nothing, so an empty sintax_* cell is never read as a broken tool."""
+	if has_call:
+		return "ok"
+	if sintax_ran:
+		return "sem atribuição SINTAX"  # SINTAX ran; this feature simply got no k-mer call
+	return "SINTAX não corrido — ver source_status.csv"
+
+
+def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: List[Dict[str, str]], feature_type: str = "", abundances: Optional[Dict[str, int]] = None, sintax_ran: bool = True) -> List[Dict[str, str]]:
 	"""One row per feature: consensus call plus the best hit of EACH evidence family.
 
 	Derived from the same in-memory records and consensus rows the other taxonomy tables
@@ -1373,6 +1409,7 @@ def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: L
 				"sintax_source": _safe_text(sintax.get("source")) if sintax else "",
 				"sintax_taxon": _record_taxon(sintax),
 				"sintax_confidence": _safe_text(sintax.get("confidence")) if sintax else "",
+				"sintax_status": _sintax_status_cell(sintax is not None, sintax_ran),
 			}
 		)
 	return rows
@@ -1696,7 +1733,7 @@ def run_taxonomy_pipeline(
 	# in separate columns. Written here, from the same records, so the UI can render this
 	# file rather than recompute it — one source, two consumers.
 	summary_path = output_dir / "taxonomy_summary.csv"
-	_write_csv(summary_path, _build_summary_rows(records_by_asv, consensus_rows, feature_type, feature_abundances), SUMMARY_COLUMNS)
+	_write_csv(summary_path, _build_summary_rows(records_by_asv, consensus_rows, feature_type, feature_abundances, _sintax_ran(source_status)), SUMMARY_COLUMNS)
 	files["taxonomy_summary_csv"] = summary_path
 
 	# Per-source assignments carry the evidence (identity, coverage, confidence,

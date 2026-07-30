@@ -463,21 +463,46 @@ def register_callbacks(app: Any) -> None:
             "sintax_source": "SINTAX — fonte",
             "sintax_taxon": "SINTAX — taxon",
             "sintax_confidence": "SINTAX — confiança",
+            "sintax_status": "SINTAX — estado",
         }
-        return html.Div(
-            [
-                html.Div([html.Div(f"{len(frame)} features", className="status-pill")], className="chip-list"),
-                data_table(
-                    data=frame.to_dict("records"),
-                    columns=[{"name": headers.get(str(c), str(c)), "id": str(c)} for c in frame.columns],
-                    sort_action="native",
-                    filter_action="native",
-                    id="feature-summary-table",
-                    page_size=15,
-                ),
-            ],
-            style={"display": "flex", "flexDirection": "column", "gap": "10px"},
+
+        children = [
+            html.Div([html.Div(f"{len(frame)} features", className="status-pill")], className="chip-list"),
+            data_table(
+                data=frame.to_dict("records"),
+                columns=[{"name": headers.get(str(c), str(c)), "id": str(c)} for c in frame.columns],
+                sort_action="native",
+                filter_action="native",
+                id="feature-summary-table",
+                page_size=15,
+            ),
+        ]
+
+        # When no feature got a SINTAX call, the three SINTAX columns are empty for the whole
+        # table — which reads as a broken tool unless the reason is right here, at the table,
+        # not in a panel in another section the reader never connects to it. Caption plus the
+        # per-source status inline, so the "why" and the deliverable share one screen. The CSV
+        # carries the same answer per row in sintax_status (4f), for the copy the supervisor opens.
+        sintax_absent = (
+            "sintax_source" not in frame.columns
+            or frame["sintax_source"].astype(str).str.strip().eq("").all()
         )
+        if sintax_absent:
+            children.append(
+                html.Div(
+                    "As colunas SINTAX estão vazias porque nenhuma fonte SINTAX (SILVA/PR2) "
+                    "contribuiu neste run — não porque nada foi encontrado. O estado de cada "
+                    "fonte está abaixo (source_status.csv).",
+                    className="empty-state-sub",
+                )
+            )
+            status_csv = _find_source_status(outputs, run_output_dir)
+            if status_csv:
+                panel = _source_status_panel(status_csv)
+                if panel is not None:
+                    children.append(panel)
+
+        return html.Div(children, style={"display": "flex", "flexDirection": "column", "gap": "10px"})
 
     @app.callback(
         Output("download-summary-csv", "data"),
