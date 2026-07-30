@@ -99,6 +99,54 @@ def _download_link(path_value, label: str):
     return html.Div(html.A(f"{label}: {path.name}", href=f"/runs/{rel.as_posix()}", target="_blank"), className="download-row")
 
 
+def _analysis_stat_values(analysis_data, run_config_data) -> dict:
+    """The three Analysis KPI values (OTUs / ASVs / Consensus) as raw strings + hints.
+
+    Split out of the callback so a restored session can be tested directly — the values
+    come from the stage record in ``store-analysis-outputs``, which ``restore_run_state``
+    repopulates from disk with the run's file paths. A count that reads an absolute FASTA
+    path the store carries is store-only but survives restore, because the store is rebuilt
+    faithfully; the test locks that chain so a future change that stops repopulating the
+    record fails loudly instead of silently blanking the cards.
+    """
+    from core.utils import _count_fasta_seqs
+
+    data = _normalize_store(analysis_data)
+    outputs = data.get("outputs") or {}
+    method = str((run_config_data or {}).get("analysis_method") or "vsearch").lower()
+
+    combined_fasta = outputs.get("combined_fasta") or ""
+    vsearch_fasta = outputs.get("combined_fasta_vsearch") or ""
+    otu_count = "—"
+    for candidate in (vsearch_fasta, combined_fasta):
+        if candidate and Path(candidate).exists():
+            otu_count = _count_fasta_seqs(Path(candidate))
+            break
+    otu_hint = "" if method in ("vsearch", "both") else "VSEARCH not selected"
+
+    dada2_out = outputs.get("dada2") or {}
+    asv_fasta = (dada2_out.get("files") or {}).get("asv_sequences_fasta") or ""
+    if asv_fasta and Path(asv_fasta).exists():
+        asv_value, asv_hint = _count_fasta_seqs(Path(asv_fasta)), ""
+    elif method in ("dada2", "both"):
+        asv_value, asv_hint = "—", "DADA2 pending / failed"
+    else:
+        asv_value, asv_hint = "off", "DADA2 not selected"
+
+    tax_out = outputs.get("taxonomy") or {}
+    consensus = (tax_out.get("files") or {}).get("taxonomy_consensus_csv") or ""
+    if consensus and Path(consensus).exists():
+        consensus_value, consensus_hint = "ready", ""
+    else:
+        consensus_value, consensus_hint = "—", "runs in Databases stage"
+
+    return {
+        "otu": otu_count, "otu_hint": otu_hint,
+        "asv": asv_value, "asv_hint": asv_hint,
+        "consensus": consensus_value, "consensus_hint": consensus_hint,
+    }
+
+
 def register_callbacks(app: Any) -> None:
 
     @app.callback(
@@ -525,46 +573,17 @@ def register_callbacks(app: Any) -> None:
         State("store-run-config", "data"),
     )
     def _update_analysis_stats(analysis_data, run_config_data):
-        from core.utils import _count_fasta_seqs
-        data = _normalize_store(analysis_data)
-        outputs = data.get("outputs") or {}
-        method = str((run_config_data or {}).get("analysis_method") or "vsearch").lower()
-
         def _card(value, label, hint=""):
             children = [html.Div(str(value), className="stat-value"), html.Div(label, className="stat-label")]
             if hint:
                 children.append(html.Div(hint, className="stat-hint"))
             return children
 
-        combined_fasta = outputs.get("combined_fasta") or ""
-        vsearch_fasta = outputs.get("combined_fasta_vsearch") or ""
-        otu_count = "—"
-        for candidate in (vsearch_fasta, combined_fasta):
-            if candidate and Path(candidate).exists():
-                otu_count = _count_fasta_seqs(Path(candidate))
-                break
-        otu_hint = "" if method in ("vsearch", "both") else "VSEARCH not selected"
-
-        dada2_out = outputs.get("dada2") or {}
-        asv_fasta = (dada2_out.get("files") or {}).get("asv_sequences_fasta") or ""
-        if asv_fasta and Path(asv_fasta).exists():
-            asv_value, asv_hint = _count_fasta_seqs(Path(asv_fasta)), ""
-        elif method in ("dada2", "both"):
-            asv_value, asv_hint = "—", "DADA2 pending / failed"
-        else:
-            asv_value, asv_hint = "off", "DADA2 not selected"
-
-        tax_out = outputs.get("taxonomy") or {}
-        consensus = (tax_out.get("files") or {}).get("taxonomy_consensus_csv") or ""
-        if consensus and Path(consensus).exists():
-            consensus_value, consensus_hint = "ready", ""
-        else:
-            consensus_value, consensus_hint = "—", "runs in Databases stage"
-
+        values = _analysis_stat_values(analysis_data, run_config_data)
         return (
-            _card(otu_count, "OTUs", otu_hint),
-            _card(asv_value, "ASVs", asv_hint),
-            _card(consensus_value, "Consensus", consensus_hint),
+            _card(values["otu"], "OTUs", values["otu_hint"]),
+            _card(values["asv"], "ASVs", values["asv_hint"]),
+            _card(values["consensus"], "Consensus", values["consensus_hint"]),
         )
 
     @app.callback(
