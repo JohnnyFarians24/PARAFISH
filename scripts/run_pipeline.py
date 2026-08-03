@@ -93,7 +93,7 @@ def main() -> int:
         "--min-unique-size",
         type=int,
         default=None,
-        help="vsearch --minuniquesize: 1 keeps singletons as OTU seeds, 2 (default) does not",
+        help="vsearch --minuniquesize: 1 (default) keeps singletons as OTU seeds, 2 does not",
     )
     args = parser.parse_args()
 
