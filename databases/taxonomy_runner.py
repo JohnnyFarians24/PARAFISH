@@ -691,12 +691,12 @@ def _classify_sintax_source(result_path: Optional[Path], log_path: Optional[Path
         except Exception:
             assigned = 0
     if assigned > 0:
-        return "ok", f"{assigned} sequências classificadas"
+        return "ok", f"{assigned} sequences classified"
     if oom:
-        return "failed", "sem memória (OOM) — base demasiado grande para a RAM disponível"
+        return "failed", "out of memory (OOM) — database too large for the available RAM"
     if "reference preparation failed" in lowered or "error" in lowered:
-        return "failed", "erro ao preparar/correr a base — ver log"
-    return "no_hits", "correu mas sem atribuições taxonómicas"
+        return "failed", "error preparing/running the database — see log"
+    return "no_hits", "ran but made no taxonomic assignments"
 
 
 def _count_fasta_records(fasta_path) -> int:
@@ -791,8 +791,8 @@ def _not_applicable(source: str, marker) -> Dict[str, str]:
 		"source": source,
 		"status": "not_applicable",
 		"detail": (
-			f"{source} indexa {'/'.join(sorted(supported))}; este run é "
-			f"{str(marker).strip().upper()} — a fonte foi saltada sem ser filtrada nem carregada"
+			f"{source} indexes {'/'.join(sorted(supported))}; this run is "
+			f"{str(marker).strip().upper()} — the source was skipped without being filtered or loaded"
 		),
 	}
 
@@ -811,7 +811,7 @@ def _reconcile_source_status(
 	Each source used to judge itself by a different proxy: BOLD by whether its result
 	*file* existed, NCBI by BLAST's ``hit_count``, custom BLAST by a match counter.
 	None of those answers the question the column claims to answer — "did this source
-	assign a taxon to anything" — so BOLD reported ``ok, identificação concluída`` on a
+	assign a taxon to anything" — so BOLD reported ``ok, BOLD identification complete`` on a
 	run where all 7 of its rows were unassigned with identity 0.0, and custom BLAST
 	reported ``no_hits`` off a raw output of 0 bytes, which is a failure, not an
 	absence of matches.
@@ -861,22 +861,22 @@ def _reconcile_source_status(
 			)
 			if assigned:
 				entry["status"] = "ok"
-				entry["detail"] = f"{assigned}/{feature_total} features com taxonomia · {entry.get('detail', '')}".strip(" ·")
+				entry["detail"] = f"{assigned}/{feature_total} features with taxonomy · {entry.get('detail', '')}".strip(" ·")
 			elif incompatible:
 				entry["status"] = "not_applicable"
 				entry["detail"] = (
-					f"{key} indexa {'/'.join(sorted(supported))}; este run é {marker_upper} — "
-					f"a fonte não podia identificar estas features, e 0/{feature_total} não é uma ausência real"
+					f"{key} indexes {'/'.join(sorted(supported))}; this run is {marker_upper} — "
+					f"the source could not identify these features, so 0/{feature_total} is not a real absence"
 				)
 			elif produced_output:
 				entry["status"] = "no_hits"
-				entry["detail"] = f"correu mas não atribuiu taxonomia a nenhuma das {feature_total} features"
+				entry["detail"] = f"ran but assigned taxonomy to none of the {feature_total} features"
 			else:
 				entry["status"] = "failed"
 				entry["detail"] = (
-					f"a ferramenta reportou um erro: {failure}"
+					f"the tool reported an error: {failure}"
 					if failure
-					else "não produziu resultado utilizável (saída vazia ou ausente)"
+					else "produced no usable output (empty or missing)"
 				)
 		reconciled.append(entry)
 	return reconciled
@@ -906,9 +906,9 @@ def _sintax_memory_shortfall(db_path: Path) -> Optional[str]:
 		return None
 	size = Path(db_path).stat().st_size
 	return (
-		f"ignorada: a base ocupa {size / 1e9:.1f} GB e o SINTAX precisa de cerca de "
-		f"{needed / 1e9:.1f} GB de RAM, mas so ha {available / 1e9:.1f} GB disponiveis. "
-		f"Usa uma referencia mais pequena (filtrada para o teu marcador), ou mais RAM."
+		f"skipped: the database takes {size / 1e9:.1f} GB and SINTAX needs about "
+		f"{needed / 1e9:.1f} GB of RAM, but only {available / 1e9:.1f} GB is available. "
+		f"Use a smaller reference (filtered to your marker), or more RAM."
 	)
 
 
@@ -933,7 +933,7 @@ def _apply_marker_filter(
 	try:
 		reference = build_marker_reference(Path(db_path), marker, primers, threads=threads)
 	except Exception as exc:  # a reference that cannot be shrunk is not a failed run
-		log_lines.append(f"{source_name}: falha ao filtrar a referência ({exc}); a usar a base completa.")
+		log_lines.append(f"{source_name}: failed to filter the reference ({exc}); falling back to the full database.")
 		return Path(db_path), None
 	if reference is None:
 		return Path(db_path), None
@@ -982,7 +982,7 @@ def run_sintax(fasta_path: Path, db_path: Path, cutoff: float, threads: int, out
 		if exc.returncode is not None and exc.returncode < 0:
 			reason = (
 				f"VSEARCH SINTAX foi terminado pelo sistema (sinal {-exc.returncode}), "
-				f"quase de certeza por falta de memória (OOM)."
+				f"almost certainly for lack of memory (OOM)."
 			)
 			message = (preamble + "\n\n" if preamble else "") + reason
 		else:
@@ -1371,8 +1371,8 @@ def _sintax_status_cell(has_call: bool, sintax_ran: bool) -> str:
 	if has_call:
 		return "ok"
 	if sintax_ran:
-		return "sem atribuição SINTAX"  # SINTAX ran; this feature simply got no k-mer call
-	return "SINTAX não corrido — ver source_status.csv"
+		return "no SINTAX assignment"  # SINTAX ran; this feature simply got no k-mer call
+	return "SINTAX not run — see source_status.csv"
 
 
 def _build_summary_rows(records_by_asv: Dict[str, List[dict]], consensus_rows: List[Dict[str, str]], feature_type: str = "", abundances: Optional[Dict[str, int]] = None, sintax_ran: bool = True) -> List[Dict[str, str]]:
@@ -1587,7 +1587,7 @@ def run_taxonomy_pipeline(
 						detection_csv = write_detection_table(comparison.get("detection") or {}, output_dir / "custom_blast" / "custom_detection.csv")
 						if detection_csv:
 							files["custom_detection_csv"] = detection_csv
-				log_lines.append(f"Custom BLAST comparison: {int(metrics.get('custom_matched', 0))}/{int(metrics.get('custom_total', 0))} OTUs com match.")
+				log_lines.append(f"Custom BLAST comparison: {int(metrics.get('custom_matched', 0))}/{int(metrics.get('custom_total', 0))} OTUs matched.")
 				matched_n = int(metrics.get("custom_matched", 0))
 				total_n = int(metrics.get("custom_total", 0))
 				# A 0-byte custom_blast_raw.tsv reported "no_hits" — but no output at
@@ -1596,7 +1596,7 @@ def run_taxonomy_pipeline(
 				source_status.append({
 					"source": "Base customizada (BLAST)",
 					"status": "ok" if matched_n > 0 else "no_hits",
-					"detail": f"{matched_n}/{total_n} OTUs com correspondência",
+					"detail": f"{matched_n}/{total_n} OTUs matched",
 					"key": "CUSTOM",
 					"raw": custom_result.files.get("custom_blast_raw_tsv"),
 					# The log, not the raw table's size, decides failure vs absence: a
@@ -1607,8 +1607,8 @@ def run_taxonomy_pipeline(
 				})
 			else:
 				metrics["custom_error"] = 1.0
-				log_lines.append(custom_result.error_message or "Custom BLAST falhou")
-				source_status.append({"source": "Base customizada (BLAST)", "status": "failed", "detail": custom_result.error_message or "falhou"})
+				log_lines.append(custom_result.error_message or "Custom BLAST failed")
+				source_status.append({"source": "Base customizada (BLAST)", "status": "failed", "detail": custom_result.error_message or "failed"})
 		else:
 			custom_path = run_sintax(fasta_path, custom_db_path, sintax_cutoff, threads, output_dir=output_dir / "custom", prefix="custom_sintax")
 			files["custom_sintax_csv"] = custom_path
@@ -1647,11 +1647,11 @@ def run_taxonomy_pipeline(
 			else:
 				metrics["ncbi_error"] = 1.0
 				log_lines.append("NCBI result missing blast_tsv path.")
-				source_status.append({"source": "NCBI", "status": "failed", "detail": "resultado BLAST em falta"})
+				source_status.append({"source": "NCBI", "status": "failed", "detail": "BLAST result missing"})
 		else:
 			metrics["ncbi_error"] = 1.0
 			log_lines.append(ncbi_result.error_message or "NCBI failed")
-			source_status.append({"source": "NCBI", "status": "failed", "detail": ncbi_result.error_message or "falhou"})
+			source_status.append({"source": "NCBI", "status": "failed", "detail": ncbi_result.error_message or "failed"})
 
 	if bold_config is not None and _marker_incompatible("BOLD", marker):
 		# BOLD's incompatibility was already known, but only after the fact: the run
@@ -1681,11 +1681,11 @@ def run_taxonomy_pipeline(
 				)
 				# "ok" here means only that BOLD returned a file; whether it identified
 				# anything is settled by _reconcile_source_status against the records.
-				source_status.append({"source": "BOLD", "status": "ok", "detail": "identificação BOLD concluída", "key": "BOLD", "raw": bold_path})
+				source_status.append({"source": "BOLD", "status": "ok", "detail": "BOLD identification complete", "key": "BOLD", "raw": bold_path})
 			else:
 				metrics["bold_error"] = 1.0
 				log_lines.append("BOLD result missing parquet/xlsx path.")
-				source_status.append({"source": "BOLD", "status": "failed", "detail": "resultado BOLD em falta"})
+				source_status.append({"source": "BOLD", "status": "failed", "detail": "BOLD result missing"})
 		else:
 			metrics["bold_error"] = 1.0
 			message = bold_result.error_message or "BOLD failed"
@@ -1712,7 +1712,7 @@ def run_taxonomy_pipeline(
 			log_path.write_text("\n".join(log_lines) or "Custom BLAST comparison completed.", encoding="utf-8")
 			return StepOutput(step_name="taxonomy", success=True, files=files, log=log_path, metrics=metrics)
 		log_path.write_text("\n".join(log_lines) or "No taxonomy sources succeeded.", encoding="utf-8")
-		return StepOutput(step_name="taxonomy", success=False, files=files, log=log_path, metrics=metrics, error_message="Nenhuma fonte de taxonomia teve sucesso.")
+		return StepOutput(step_name="taxonomy", success=False, files=files, log=log_path, metrics=metrics, error_message="No taxonomy source succeeded.")
 
 	consensus_rows = [_build_consensus_row(asv_id, records, consensus_method, feature_type) for asv_id, records in sorted(records_by_asv.items())]
 	conflicts = _build_conflict_report(records_by_asv)

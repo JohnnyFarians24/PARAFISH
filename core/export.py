@@ -125,30 +125,30 @@ def render_provenance(config: dict, tool_versions=None) -> str:
     config = config or {}
 
     if not config:
-        recipe = ["  (a receita não foi registada nesta run — anterior ao registo de", "   proveniência; runs novas gravam-na no progress.json.)"]
+        recipe = ["  (the recipe was not recorded for this run — it predates provenance", "   recording; new runs write it into progress.json.)"]
     else:
         sources = ", ".join(str(s).upper() for s in (config.get("db_sources") or [])) or "—"
         markers = ", ".join(str(m) for m in (config.get("markers") or [])) or "—"
         primers = config.get("primers") or {}
         recipe = [
-            f"  Fontes de referência : {sources}",
-            f"  Marcador(es)         : {markers}",
-            f"  Método de análise    : {config.get('analysis_method', '—')}",
-            f"  Ramo                 : {config.get('branch', '—')}",
-            f"  min_unique_size      : {config.get('min_unique_size', '—')}",
-            f"  Primers  fwd         : {primers.get('fwd') or '—'}",
-            f"  Primers  rev         : {primers.get('rev') or '—'}",
-            f"  NCBI                 : {config.get('ncbi_mode', '—')}",
+            f"  Reference sources : {sources}",
+            f"  Marker(s)         : {markers}",
+            f"  Analysis method   : {config.get('analysis_method', '—')}",
+            f"  Branch            : {config.get('branch', '—')}",
+            f"  min_unique_size   : {config.get('min_unique_size', '—')}",
+            f"  Primers  fwd      : {primers.get('fwd') or '—'}",
+            f"  Primers  rev      : {primers.get('rev') or '—'}",
+            f"  NCBI              : {config.get('ncbi_mode', '—')}",
         ]
 
-    lines = ["PARAFISH — proveniência da run", "=" * 46, "", "Receita", "-" * 46, *recipe, "", "Versões das ferramentas", "-" * 46]
+    lines = ["PARAFISH — run provenance", "=" * 46, "", "Recipe", "-" * 46, *recipe, "", "Tool versions", "-" * 46]
     if tool_versions:
         lines += [f"  {tool:12s} {version}" for tool, version in tool_versions]
     else:
         lines += [
-            "  (não resolvidas neste ambiente — lacuna conhecida)",
-            "  As versões são lidas dos binários configurados no momento da",
-            "  exportação; sem elas a receita está incompleta para reprodução.",
+            "  (not resolved in this environment — known gap)",
+            "  Versions are read from the binaries configured at export",
+            "  time; without them the recipe is incomplete for reproduction.",
         ]
     return "\n".join(lines) + "\n"
 

@@ -240,14 +240,14 @@ def register_callbacks(app: Any) -> None:
         )
 
         pills = [
-            html.Div(f"{n_samples} amostra(s) selecionada(s)", className="status-pill"),
-            html.Div(f"Máximo recomendado: {limit}", className="status-pill"),
+            html.Div(f"{n_samples} sample(s) selected", className="status-pill"),
+            html.Div(f"Recommended maximum: {limit}", className="status-pill"),
         ]
         if total and available:
             pills.append(html.Div(f"RAM: {available / 1e9:.1f} GB livre de {total / 1e9:.1f} GB", className="status-pill"))
 
         children = [
-            html.Div("Recursos da máquina", className="card-title"),
+            html.Div("Machine resources", className="card-title"),
             html.Div(pills, className="chip-list"),
         ]
         for note in notes:
@@ -265,7 +265,7 @@ def register_callbacks(app: Any) -> None:
                 )
             )
         if not notes:
-            children.append(html.Div("Sem problemas de memória previstos para esta configuração.", className="mini-note"))
+            children.append(html.Div("No memory problems expected for this configuration.", className="mini-note"))
         return html.Div(children, className="card card-body", style={"marginBottom": "12px"})
 
     @app.callback(

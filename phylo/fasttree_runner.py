@@ -20,7 +20,7 @@ def run_fasttree(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOut
             step_name="fasttree",
             success=False,
             files={},
-            error_message="Alinhamento contém cabeçalhos inválidos.",
+            error_message="Alignment contains invalid headers.",
         )
 
     sequence_count = sum(
@@ -32,7 +32,7 @@ def run_fasttree(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOut
             step_name="fasttree",
             success=False,
             files={},
-            error_message=f"Alinhamento com apenas {sequence_count} sequências (mínimo: {MIN_TREE_SEQUENCES}).",
+            error_message=f"Alignment has only {sequence_count} sequences (minimum: {MIN_TREE_SEQUENCES}).",
         )
 
     tree_nwk = output_dir / "tree.nwk"
@@ -60,7 +60,7 @@ def run_fasttree(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOut
             success=False,
             files={},
             log=log_path,
-            error_message=f"FastTree falhou: {exc}",
+            error_message=f"FastTree failed: {exc}",
         )
 
     if not tree_nwk.exists() or tree_nwk.stat().st_size == 0:
@@ -69,7 +69,7 @@ def run_fasttree(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOut
             success=False,
             files={"log": log_path},
             log=log_path,
-            error_message="FastTree terminou sem gerar árvore. Verifica o alinhamento de entrada.",
+            error_message="FastTree finished without producing a tree. Check the input alignment.",
         )
 
     return StepOutput(

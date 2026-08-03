@@ -19,7 +19,7 @@ def controls(prefix: str, *, default_metric: str = "aitchison"):
         [
             html.Div(
                 [
-                    html.Label("Distância", className="mini-note"),
+                    html.Label("Distance", className="mini-note"),
                     dcc.Dropdown(
                         id=f"{prefix}-metric",
                         options=[{"label": label, "value": key} for key, label in DISTANCES.items()],
@@ -38,7 +38,7 @@ def controls(prefix: str, *, default_metric: str = "aitchison"):
             ),
             html.Div(
                 [
-                    html.Label(f"Prevalência mínima (nº de amostras)", className="mini-note"),
+                    html.Label(f"Minimum prevalence (no. of samples)", className="mini-note"),
                     dcc.Slider(
                         id=f"{prefix}-prevalence",
                         min=1,
@@ -72,44 +72,44 @@ def panel(prefix: str, *, compact: bool = False, default_metric: str = "aitchiso
     return html.Div(
         [
             html.Div(
-                "As contagens de metabarcoding são composicionais: o total é imposto pela profundidade de "
-                "sequenciação, não pela biologia. Por isso o método por omissão é a PCA de Aitchison (CLR) — "
-                "um PCA sobre contagens brutas faria o PC1 captar a profundidade de sequenciação em vez de "
-                "biologia.",
+                "Metabarcoding counts are compositional: the total is imposed by sequencing depth, "
+                "not by biology. That is why the default method is Aitchison PCA (CLR) — "
+                "a PCA on raw counts would make PC1 capture sequencing depth instead of "
+                "biology.",
                 className="mini-note",
             ),
             html.Div(
-                f"Zeros substituídos por um pseudocount de {ZERO_REPLACEMENT} sobre as contagens. Nota: isto "
-                f"torna o CLR apenas aproximadamente invariante à escala (o desvio é <1% mesmo para diferenças "
-                f"de profundidade de 50x, muito abaixo do sinal biológico). A substituição multiplicativa "
-                f"bayesiana (zCompositions) elimina esse resíduo, ao custo de uma dependência em R.",
+                f"Zeros replaced by a pseudocount of {ZERO_REPLACEMENT} on the counts. Note: this "
+                f"makes the CLR only approximately scale-invariant (the drift is <1% even for depth "
+                f"differences of 50x, far below the biological signal). Bayesian multiplicative "
+                f"replacement (zCompositions) removes that residue, at the cost of an R dependency.",
                 className="mini-note",
                 style={"opacity": 0.8},
             ),
             controls(prefix, default_metric=default_metric),
             dcc.Checklist(
                 id=f"{prefix}-exclude-host",
-                options=[{"label": " Excluir hospedeiro e não classificados", "value": "exclude"}],
+                options=[{"label": " Exclude host and unclassified", "value": "exclude"}],
                 value=["exclude"],
                 className="checkbox-group",
             ),
             html.Div(
-                "O sinal do hospedeiro domina a matriz e esmaga tudo o resto; sem esta exclusão o PC1 "
-                "captura quase só a variação do hospedeiro.",
+                "The host signal dominates the matrix and swamps everything else; without this exclusion PC1 "
+                "captures almost nothing but host variation.",
                 className="mini-note",
             ),
             dcc.Loading(html.Div(id=f"{prefix}-plot"), type="dot"),
             html.Div(
                 [
                     html.Button("Coordenadas (TSV)", id=f"{prefix}-download-coords", className="btn-parafish"),
-                    html.Button("Matriz de distâncias (TSV)", id=f"{prefix}-download-dist", className="btn-parafish", style={"marginLeft": "8px"}),
+                    html.Button("Distance matrix (TSV)", id=f"{prefix}-download-dist", className="btn-parafish", style={"marginLeft": "8px"}),
                     dcc.Download(id=f"{prefix}-download-coords-data"),
                     dcc.Download(id=f"{prefix}-download-dist-data"),
                 ],
                 className="control-row",
             ),
-            details("Biplot — que features causam a separação", dcc.Loading(html.Div(id=f"{prefix}-biplot"), type="dot")),
-            details("Scree plot — variância por eixo", dcc.Loading(html.Div(id=f"{prefix}-scree"), type="dot")),
+            details("Biplot — which features drive the separation", dcc.Loading(html.Div(id=f"{prefix}-biplot"), type="dot")),
+            details("Scree plot — variance per axis", dcc.Loading(html.Div(id=f"{prefix}-scree"), type="dot")),
             details("PERMANOVA", dcc.Loading(html.Div(id=f"{prefix}-permanova"), type="dot")),
         ],
         style={"display": "flex", "flexDirection": "column", "gap": "8px"},
@@ -120,7 +120,7 @@ def guard_message(n_samples: int, message: str):
     """The explicit empty state. Never a plot when the plot would mislead."""
     return html.Div(
         [
-            html.Div("Ordenação indisponível", style={"fontWeight": "600", "color": "#d29922", "marginBottom": "6px"}),
+            html.Div("Ordination unavailable", style={"fontWeight": "600", "color": "#d29922", "marginBottom": "6px"}),
             html.Div(message, className="empty-state-sub"),
         ],
         style={
@@ -135,8 +135,8 @@ def guard_message(n_samples: int, message: str):
 def low_confidence_warning(n_samples: int):
     """Rendered above the plot when it is drawable but barely interpretable."""
     return html.Div(
-        f"Atenção: {n_samples} amostras. A ordenação desenha-se, mas o poder interpretativo é muito "
-        f"limitado abaixo de {LOW_CONFIDENCE_SAMPLES} amostras — trata a separação como indicativa, não como resultado.",
+        f"Warning: {n_samples} samples. The ordination will render, but interpretive power is very "
+        f"limited below {LOW_CONFIDENCE_SAMPLES} samples — read the separation as indicative, not as a result.",
         className="mini-note",
         style={
             "padding": "8px 10px",

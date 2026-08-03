@@ -68,7 +68,7 @@ def run_raxml(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOutput
             success=False,
             files={},
             log=log_path,
-            error_message=f"RAxML-NG falhou: {exc}",
+            error_message=f"RAxML-NG failed: {exc}",
         )
 
     log_path.write_text("\n".join(log_lines), encoding="utf-8")
@@ -85,7 +85,7 @@ def run_raxml(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOutput
             success=False,
             files={"log": log_path},
             log=log_path,
-            error_message="RAxML-NG terminou mas bestTree não foi gerado. Verifica o log.",
+            error_message="RAxML-NG finished but no bestTree was produced. Check the log.",
         )
 
     return StepOutput(

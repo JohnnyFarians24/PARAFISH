@@ -77,11 +77,11 @@ def build_custom_comparison(
     besthit_csv = Path(besthit_csv)
     rows = _read_besthit(besthit_csv)
     if not rows:
-        return {"error": "Tabela de melhores hits do BLAST não encontrada ou vazia.", "per_otu": [], "detection": None, "samples": [], "summary": {}}
+        return {"error": "BLAST best-hits table not found or empty.", "per_otu": [], "detection": None, "samples": [], "summary": {}}
 
     feature_ids, samples, values = _load_matrix(Path(abundance_matrix_path))
     if not feature_ids or not samples:
-        return {"error": "Matriz de abundância não encontrada ou sem amostras.", "per_otu": [], "detection": None, "samples": [], "summary": {}}
+        return {"error": "Abundance matrix not found, or it has no samples.", "per_otu": [], "detection": None, "samples": [], "summary": {}}
 
     public_species = _load_consensus_species(consensus_csv)
 

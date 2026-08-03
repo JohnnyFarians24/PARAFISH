@@ -123,8 +123,8 @@ def run_cutadapt(sample: Sample, config: RunConfig) -> StepOutput:
     if not cutadapt_available():
         return _passthrough(
             sample,
-            "cutadapt não encontrado — primers não removidos aqui; o corte por comprimento "
-            "no vsearch (Analysis) continua a aplicar-se. Instala com 'pip install cutadapt'.",
+            "cutadapt not found — primers not removed here; the length-based trim "
+            "in vsearch (Analysis) still applies. Install with 'pip install cutadapt'.",
         )
 
     output_dir = config.output_dir / "preprocess" / sample.internal_id
@@ -167,7 +167,7 @@ def run_cutadapt(sample: Sample, config: RunConfig) -> StepOutput:
     except subprocess.CalledProcessError as exc:
         log_path.write_text((exc.stdout or "") + (exc.stderr or ""), encoding="utf-8")
         # Fall back to the untrimmed reads rather than killing the whole stage.
-        return _passthrough(sample, f"cutadapt falhou ({str(exc)[:200]}) — reads passam sem remoção de primers.")
+        return _passthrough(sample, f"cutadapt failed ({str(exc)[:200]}) — reads pass through with primers left in.")
 
     metrics: Dict[str, float] = {"primers_removed": 1.0}
     metrics.update(_counts_from_json(report_path))

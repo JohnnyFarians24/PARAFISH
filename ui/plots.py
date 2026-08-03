@@ -769,7 +769,7 @@ def detection_heatmap_figure(detection: dict, *, relative: bool = True, max_taxa
     )
     fig.update_layout(yaxis=dict(autorange="reversed"))
     height = max(300, 22 * len(taxa) + 130)
-    return _theme(fig, height=height, title=f"Deteção por amostra ({'abundância relativa' if relative else 'reads'}) — comparação com base customizada")
+    return _theme(fig, height=height, title=f"Detection per sample ({'relative abundance' if relative else 'reads'}) — custom database comparison")
 
 
 def match_rate_figure(summary: dict) -> Optional[go.Figure]:
@@ -782,7 +782,7 @@ def match_rate_figure(summary: dict) -> Optional[go.Figure]:
         return None
     fig = go.Figure(
         go.Pie(
-            labels=["Com match", "None (sem match)"],
+            labels=["Matched", "None (no match)"],
             values=[matched, unmatched],
             hole=0.55,
             marker=dict(colors=[_GREEN, _RED]),
@@ -790,7 +790,7 @@ def match_rate_figure(summary: dict) -> Optional[go.Figure]:
             hovertemplate="%{label}: %{value} OTUs (%{percent})<extra></extra>",
         )
     )
-    return _theme(fig, height=300, title=f"OTUs com correspondência na base customizada ({summary.get('pct_matched', 0)}%)")
+    return _theme(fig, height=300, title=f"OTUs matched in the custom database ({summary.get('pct_matched', 0)}%)")
 
 
 # ── Phylogenetics ───────────────────────────────────────────────────────
@@ -1041,7 +1041,7 @@ def beta_ordination_figure(result: dict, groups: Optional[dict] = None) -> "go.F
     groups = groups or {}
 
     fig = go.Figure()
-    labels = [groups.get(sample) or "sem grupo" for sample in samples]
+    labels = [groups.get(sample) or "no group" for sample in samples]
     for index, label in enumerate(dict.fromkeys(labels)):
         mask = [i for i, value in enumerate(labels) if value == label]
         fig.add_trace(
@@ -1064,7 +1064,7 @@ def beta_ordination_figure(result: dict, groups: Optional[dict] = None) -> "go.F
     fig.add_vline(x=0, line_width=1, line_dash="dot", line_color="rgba(255,255,255,0.15)")
 
     name = DISTANCES.get(result["metric"], result["metric"])
-    _theme(fig, height=430, title=f"{name} — {result['n_samples']} amostras, {result['n_features']} features")
+    _theme(fig, height=430, title=f"{name} — {result['n_samples']} samples, {result['n_features']} features")
     fig.update_xaxes(title_text=f"PC1 ({explained[0] * 100:.1f}%)")
     fig.update_yaxes(title_text=f"PC2 ({explained[1] * 100:.1f}%)")
     # Equal aspect: distances in an ordination are only comparable if the axes are.
@@ -1086,8 +1086,8 @@ def scree_figure(result: dict) -> "go.Figure":
             hovertemplate="%{x}: %{y:.1f}%<extra></extra>",
         )
     )
-    _theme(fig, height=260, title="Variância explicada por eixo")
-    fig.update_yaxes(title_text="% da variância")
+    _theme(fig, height=260, title="Variance explained per axis")
+    fig.update_yaxes(title_text="% of variance")
     return fig
 
 
@@ -1172,7 +1172,7 @@ def read_funnel_figure(steps: list[dict]) -> "go.Figure":
             hovertemplate="%{x}<br>%{y:,.0f} reads<extra></extra>",
         )
     )
-    _theme(fig, height=400, title="Funil de leituras — do FASTQ à feature classificada")
+    _theme(fig, height=400, title="Read funnel — from FASTQ to classified feature")
     fig.update_yaxes(title_text="Reads")
     # Headroom for the outside labels, which otherwise clip at the top.
     if values:
@@ -1214,7 +1214,7 @@ def stacked_composition_figure(frame: "pd.DataFrame", rank: str, top_n: int = 12
         )
 
     label = rank.replace("Consensus_", "")
-    _theme(fig, height=420, title=f"Abundância relativa por amostra — {label}")
+    _theme(fig, height=420, title=f"Relative abundance per sample — {label}")
     fig.update_layout(barmode="stack", legend=dict(orientation="v", x=1.02, y=1, xanchor="left"))
-    fig.update_yaxes(title_text="% das reads", range=[0, 100])
+    fig.update_yaxes(title_text="% of reads", range=[0, 100])
     return fig

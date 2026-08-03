@@ -113,16 +113,16 @@ def resolve_lineages(
     cfg = get_entrez_config()
     if not cfg["email"]:
         warnings.append(
-            "Linhagem taxonómica (Reino→Família) não resolvida: falta ENTREZ_EMAIL. "
-            "Define ENTREZ_EMAIL no .env para o NCBI preencher a linhagem completa; "
-            "sem isso, os ranks acima de género ficam em branco."
+            "Taxonomic lineage (Kingdom→Family) not resolved: ENTREZ_EMAIL is missing. "
+            "Set ENTREZ_EMAIL in .env so NCBI fills the full lineage; "
+            "without it, the ranks above genus stay blank."
         )
         return lineages, warnings
 
     try:
         from Bio import Entrez
     except ImportError:
-        warnings.append("Biopython indisponível: linhagem NCBI não resolvida.")
+        warnings.append("Biopython unavailable: NCBI lineage not resolved.")
         return lineages, warnings
 
     Entrez.email = cfg["email"]
@@ -140,7 +140,7 @@ def resolve_lineages(
             handle.close()
         except Exception as exc:  # network, HTTP, parse — all best-effort
             warnings.append(
-                f"Linhagem NCBI não resolvida para {len(missing) - start} taxid(s) "
+                f"NCBI lineage not resolved for {len(missing) - start} taxid(s) "
                 f"(offline ou erro de rede?): {str(exc)[:200]}"
             )
             break

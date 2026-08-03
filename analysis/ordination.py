@@ -61,9 +61,9 @@ MIN_FEATURES = 3
 DISTANCES = {
     "aitchison": "PCA de Aitchison (CLR) — recomendado",
     "braycurtis": "PCoA — Bray-Curtis",
-    "jaccard": "PCoA — Jaccard (presença/ausência)",
-    "weighted_unifrac": "PCoA — UniFrac ponderado (requer árvore)",
-    "unweighted_unifrac": "PCoA — UniFrac não ponderado (requer árvore)",
+    "jaccard": "PCoA — Jaccard (presence/absence)",
+    "weighted_unifrac": "PCoA — weighted UniFrac (requires a tree)",
+    "unweighted_unifrac": "PCoA — unweighted UniFrac (requires a tree)",
 }
 
 NEEDS_TREE = frozenset({"weighted_unifrac", "unweighted_unifrac"})
@@ -114,8 +114,8 @@ def _pcoa(counts: np.ndarray, samples: list[str], metric: str, tree_path: Option
     if metric in NEEDS_TREE:
         if not tree_path or not Path(tree_path).exists():
             raise OrdinationError(
-                "O UniFrac precisa de uma árvore filogenética. Corre a etapa Phylo primeiro, "
-                "ou escolhe outra distância."
+                "UniFrac needs a phylogenetic tree. Run the Phylo stage first, "
+                "or choose another distance."
             )
         from skbio import TreeNode
 
@@ -125,8 +125,8 @@ def _pcoa(counts: np.ndarray, samples: list[str], metric: str, tree_path: Option
         keep = [index for index, feature in enumerate(features) if feature in tips]
         if len(keep) < MIN_FEATURES:
             raise OrdinationError(
-                "As features da tabela não correspondem às folhas da árvore, por isso o UniFrac "
-                "não pode ser calculado."
+                "The table's features do not match the tree's tips, so UniFrac "
+                "cannot be computed."
             )
         counts = counts[:, keep]
         features = [features[index] for index in keep]
@@ -141,9 +141,9 @@ def _pcoa(counts: np.ndarray, samples: list[str], metric: str, tree_path: Option
     # sample, all samples are identical to it. Plotting NaN axes would be nonsense.
     if not np.any(np.asarray(matrix.data) > 0):
         raise OrdinationError(
-            f"Todas as amostras têm distância zero segundo esta métrica, por isso não há eixos "
-            f"para decompor. Com Jaccard isto acontece quando todas as features estão presentes em "
-            f"todas as amostras — usa uma métrica que tenha em conta a abundância (Aitchison ou "
+            f"Every sample is at zero distance under this metric, so there are no axes "
+            f"to decompose. With Jaccard this happens when every feature is present in "
+            f"every sample — use a metric that accounts for abundance (Aitchison or "
             f"Bray-Curtis)."
         )
 
@@ -151,7 +151,7 @@ def _pcoa(counts: np.ndarray, samples: list[str], metric: str, tree_path: Option
     coordinates = np.asarray(result.samples.iloc[:, :2])
     ratio = np.asarray(result.proportion_explained)
     if not np.all(np.isfinite(ratio)):
-        raise OrdinationError("A ordenação produziu eixos indefinidos com esta métrica. Tenta Aitchison ou Bray-Curtis.")
+        raise OrdinationError("The ordination produced undefined axes with this metric. Try Aitchison or Bray-Curtis.")
     return coordinates, ratio, matrix, features
 
 
@@ -169,16 +169,16 @@ def ordinate(
     n_samples = len(samples)
     if n_samples < MIN_SAMPLES:
         raise OrdinationError(
-            f"A ordenação requer pelo menos {MIN_SAMPLES} amostras (recomendado: {LOW_CONFIDENCE_SAMPLES} ou mais). "
-            f"Este run tem {n_samples}. Com 2 amostras existe apenas 1 eixo e a separação é trivial, "
-            f"por isso o gráfico seria enganador."
+            f"Ordination requires at least {MIN_SAMPLES} samples (recommended: {LOW_CONFIDENCE_SAMPLES} or more). "
+            f"This run has {n_samples}. With 2 samples there is only 1 axis and the separation is trivial, "
+            f"so the plot would be misleading."
         )
 
     counts, features = filter_features(counts, features, min_prevalence)
     if len(features) < MIN_FEATURES:
         raise OrdinationError(
-            f"Restam {len(features)} features depois do filtro de prevalência (mínimo {MIN_FEATURES}). "
-            f"Baixa a prevalência mínima ou verifica a tabela de abundância."
+            f"Only {len(features)} features remain after the prevalence filter (minimum {MIN_FEATURES}). "
+            f"Lower the minimum prevalence or check the abundance table."
         )
 
     loadings = None

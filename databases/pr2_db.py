@@ -64,7 +64,7 @@ class PR2Config:
 	def validate(self) -> list[str]:
 		errors = []
 		if not self.db_path.exists():
-			errors.append(f"Base PR2 nao encontrada: {self.db_path}")
+			errors.append(f"PR2 database not found: {self.db_path}")
 		return errors
 
 	def _decompressed(self, path: Path) -> Path:
@@ -78,7 +78,7 @@ class PR2Config:
 	def sintax_ready_path(self) -> Path:
 		"""Return a SINTAX-formatted copy of this PR2 mothur fasta+tax pair, converting/caching on demand."""
 		if not self.tax_path or not self.tax_path.exists():
-			raise FileNotFoundError(f"PR2 taxonomy file (tax_path) nao configurado ou nao encontrado: {self.tax_path}")
+			raise FileNotFoundError(f"PR2 taxonomy file (tax_path) not configured or not found: {self.tax_path}")
 		fasta_working = self._decompressed(self.db_path)
 		tax_working = self._decompressed(self.tax_path)
 		# The cache name carries the conversion's format version: mtime alone cannot
@@ -104,7 +104,7 @@ def load_pr2(db_path: Path, version: str = "5.0") -> PR2Config:
 	config = PR2Config(db_path=db_path, version=version)
 	errors = config.validate()
 	if errors:
-		raise ValueError(f"PR2 invalido: {'; '.join(errors)}")
+		raise ValueError(f"PR2 invalid: {'; '.join(errors)}")
 	return config
 
 

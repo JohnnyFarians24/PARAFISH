@@ -307,7 +307,7 @@ def register_callbacks(app: Any) -> None:
         run_dir = run_dir_for(run_config_data, project_data)
         state = load_run_state(run_dir)
         if not state:
-            return [], None, True, "Nenhum run ativo"
+            return [], None, True, "No active run"
 
         stages = run_stages(state)
         options = [
@@ -322,7 +322,7 @@ def register_callbacks(app: Any) -> None:
         ]
         selectable = [stage["key"] for stage in stages if stage["has_outputs"]]
         value = current if current in selectable else (selectable[0] if selectable else None)
-        return options, value, False, "Escolhe um stage..."
+        return options, value, False, "Choose a stage..."
 
     @app.callback(
         Output("results-sample-selector", "options"),
@@ -338,23 +338,23 @@ def register_callbacks(app: Any) -> None:
         from core.run_registry import PER_SAMPLE_STAGES, list_run_samples, load_run_state, run_dir_for
 
         if not stage:
-            return [], None, True, "Escolhe um stage primeiro"
+            return [], None, True, "Choose a stage first"
 
         state = load_run_state(run_dir_for(run_config_data, project_data))
         if not state:
-            return [], None, True, "Nenhum run ativo"
+            return [], None, True, "No active run"
 
         if stage not in PER_SAMPLE_STAGES:
             # Databases and Phylo run on the pooled feature set. Saying so beats an
             # enabled-but-empty dropdown the user keeps clicking at.
-            return [], None, True, "Este stage não tem output por amostra"
+            return [], None, True, "This stage has no per-sample output"
 
         samples = list_run_samples(state, stage)
         if not samples:
-            return [], None, True, "Sem amostras neste stage"
+            return [], None, True, "No samples in this stage"
 
-        overview = {"label": "Overview (todas as amostras)", "value": "__ALL__"}
-        return [overview, *samples], "__ALL__", False, "Escolhe uma amostra..."
+        overview = {"label": "Overview (all samples)", "value": "__ALL__"}
+        return [overview, *samples], "__ALL__", False, "Choose a sample..."
 
     @app.callback(
         Output("results-viewer", "children"),

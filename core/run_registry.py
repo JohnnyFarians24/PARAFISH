@@ -39,11 +39,11 @@ STAGE_LABELS = {
 # than silently missing from the list.
 STATUS_SUFFIX = {
     "success": "",
-    "failure": "  ✕ falhou",
-    "partial": "  ▲ parcial",
-    "skipped": "  — não corrido",
-    "pending": "  — pendente",
-    "running": "  … a correr",
+    "failure": "  ✕ failed",
+    "partial": "  ▲ partial",
+    "skipped": "  — not run",
+    "pending": "  — pending",
+    "running": "  … running",
 }
 
 # Stages whose outputs are keyed by sample. Databases and Phylo classify and build trees

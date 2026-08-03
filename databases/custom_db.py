@@ -122,30 +122,30 @@ def _sequence_error(seq_id: str, index: int, sequence: str) -> str:
     later, inside ``makeblastdb``, where the user could no longer act on it.
     """
     if not sequence:
-        return f"A sequência #{index} ('{seq_id}') não tem bases — o cabeçalho existe mas o corpo está vazio."
+        return f"Sequence #{index} ('{seq_id}') has no bases — the header is there but the body is empty."
     invalid = {char for char in sequence if char not in _NUCLEOTIDE_ALPHABET}
     if invalid:
         sample = "".join(sorted(invalid)[:6])
         return (
-            f"A sequência #{index} ('{seq_id}') contém caracteres que não são nucleótidos "
-            f"('{sample}'). Uma base customizada tem de ser de DNA — uma FASTA de proteína "
-            f"não pode ser comparada com blastn."
+            f"Sequence #{index} ('{seq_id}') contains non-nucleotide characters "
+            f"('{sample}'). A custom database must be DNA — a protein FASTA "
+            f"cannot be compared with blastn."
         )
     # Gaps are alignment padding, not bases: they belong in neither side of this ratio,
     # and counting them as "not A/C/G/T" would reject an aligned reference for being aligned.
     bases = [char for char in sequence if char not in "-."]
     if not bases:
-        return f"A sequência #{index} ('{seq_id}') é só gaps, sem uma única base."
+        return f"Sequence #{index} ('{seq_id}') is all gaps, without a single base."
     unambiguous = sum(1 for char in bases if char in _UNAMBIGUOUS)
     if unambiguous < _MIN_UNAMBIGUOUS_FRACTION * len(bases):
         return (
-            f"A sequência #{index} ('{seq_id}') tem só {100 * unambiguous / len(bases):.0f}% "
-            f"de A/C/G/T. Não parece DNA."
+            f"Sequence #{index} ('{seq_id}') is only {100 * unambiguous / len(bases):.0f}% "
+            f"A/C/G/T. This does not look like DNA."
         )
     if len(bases) < MIN_REFERENCE_LENGTH:
         return (
-            f"A sequência #{index} ('{seq_id}') tem {len(bases)} bases; o mínimo é "
-            f"{MIN_REFERENCE_LENGTH}. Sequências mais curtas não produzem alinhamentos fiáveis."
+            f"Sequence #{index} ('{seq_id}') has {len(bases)} bases; the minimum is "
+            f"{MIN_REFERENCE_LENGTH}. Shorter sequences do not produce reliable alignments."
         )
     return ""
 
@@ -176,7 +176,7 @@ def detect_fasta_kind(path: Path) -> tuple[str, str]:
             for line in handle:
                 if first:
                     if not line.startswith(">"):
-                        return "", "Ficheiro não parece ser FASTA (a primeira linha não começa com '>')."
+                        return "", "This does not look like a FASTA file (the first line does not start with '>')."
                     first = False
                 if not line.startswith(">"):
                     current_seq.append(line.strip())
@@ -188,7 +188,7 @@ def detect_fasta_kind(path: Path) -> tuple[str, str]:
                 header = line[1:].strip()
                 seq_id = _sequence_id(header)
                 if not seq_id:
-                    return "", f"Cabeçalho sem identificador na sequência #{record_count}."
+                    return "", f"Header with no identifier at sequence #{record_count}."
                 if seq_id in seen_ids and not duplicate:
                     duplicate = seq_id
                 seen_ids.add(seq_id)
@@ -199,10 +199,10 @@ def detect_fasta_kind(path: Path) -> tuple[str, str]:
             if error:
                 return "", error
     except (OSError, UnicodeDecodeError) as exc:
-        return "", f"Não foi possível ler o ficheiro: {exc}"
+        return "", f"Could not read the file: {exc}"
 
     if first or record_count == 0:
-        return "", "Ficheiro FASTA vazio."
+        return "", "Empty FASTA file."
     if missing_tax == 0:
         # SINTAX reference: duplicated ids break VSEARCH, so reject them.
         if duplicate:
@@ -223,10 +223,10 @@ class CustomDBConfig:
 
     def validate(self) -> tuple[bool, str]:
         if not self.db_path.exists():
-            return False, f"Base customizada não encontrada: {self.db_path}"
+            return False, f"Custom database not found: {self.db_path}"
         suffix = self.db_path.suffix.lower()
         if suffix not in {".fasta", ".fa", ".fna", ".gz"}:
-            return False, f"Formato não suportado: {suffix}. Usa .fasta, .fa, .fna (ou .gz de qualquer um)"
+            return False, f"Unsupported format: {suffix}. Use .fasta, .fa, .fna (or .gz of any of them)"
         kind, error = detect_fasta_kind(self.db_path)
         if not kind:
             return False, error
@@ -344,18 +344,18 @@ def run_custom_blast(
     raw_tsv = output_dir / "custom_blast_raw.tsv"
 
     if not blast_tools_available():
-        message = "blastn/makeblastdb não encontrados no PATH. Instala o BLAST+ para comparar contra uma base customizada."
+        message = "blastn/makeblastdb not found on PATH. Install BLAST+ to compare against a custom database."
         log_path.write_text(message, encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
 
     query_fasta = Path(query_fasta)
     reference_fasta = Path(reference_fasta)
     if not query_fasta.exists():
-        message = f"FASTA de consulta não encontrado: {query_fasta}"
+        message = f"Query FASTA not found: {query_fasta}"
         log_path.write_text(message, encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
     if not reference_fasta.exists():
-        message = f"Base customizada não encontrada: {reference_fasta}"
+        message = f"Custom database not found: {reference_fasta}"
         log_path.write_text(message, encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
 
@@ -363,7 +363,7 @@ def run_custom_blast(
     try:
         db_prefix = build_blast_db(reference_fasta, output_dir / "db")
     except subprocess.CalledProcessError as exc:
-        message = f"makeblastdb falhou: {str(exc.stderr or exc.stdout or exc)[:500]}"
+        message = f"makeblastdb failed: {str(exc.stderr or exc.stdout or exc)[:500]}"
         log_path.write_text(message, encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
     except subprocess.TimeoutExpired:
@@ -408,7 +408,7 @@ def run_custom_blast(
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
     if not result.ok:
         reason = result.failure_signature or result.output[:400] or f"exit {result.returncode}"
-        message = f"blastn falhou: {reason[:500]}"
+        message = f"blastn failed: {reason[:500]}"
         log_path.write_text("\n".join(log_lines) + f"\n{message}", encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
 
@@ -458,7 +458,7 @@ def run_custom_blast(
         writer.writerows(rows)
 
     total = len(query_ids)
-    log_lines.append(f"Custom BLAST: {matched}/{total} OTUs com match (perc_identity>={perc_identity}, evalue<={evalue}).")
+    log_lines.append(f"Custom BLAST: {matched}/{total} OTUs matched (perc_identity>={perc_identity}, evalue<={evalue}).")
     log_path.write_text("\n".join(l for l in log_lines if l), encoding="utf-8")
 
     return StepOutput(

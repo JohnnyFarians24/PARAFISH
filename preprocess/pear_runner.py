@@ -22,7 +22,7 @@ def _count_fastq_reads(path: Path) -> int:
 
 def run_pear(sample: Sample, config: RunConfig, trimmed_output: StepOutput) -> StepOutput:
     if config.branch != AnalysisBranch.VSEARCH:
-        raise RuntimeError("PEAR só pode ser usado no ramo VSEARCH. Para DADA2, o merge é feito internamente.")
+        raise RuntimeError("PEAR is only used on the VSEARCH branch. DADA2 merges reads internally.")
 
     r1_trimmed = trimmed_output.files.get("r1_trimmed")
     r2_trimmed = trimmed_output.files.get("r2_trimmed")
@@ -84,7 +84,7 @@ def run_pear(sample: Sample, config: RunConfig, trimmed_output: StepOutput) -> S
                 "log": log_path,
             },
             log=log_path,
-            error_message=f"PEAR falhou: {exc}",
+            error_message=f"PEAR failed: {exc}",
         )
 
     log_path.write_text((completed.stdout or "") + "\n" + (completed.stderr or ""), encoding="utf-8")
@@ -103,7 +103,7 @@ def run_pear(sample: Sample, config: RunConfig, trimmed_output: StepOutput) -> S
                 "log": log_path,
             },
             log=log_path,
-            error_message="PEAR terminou mas assembled.fastq está vazio ou ausente.",
+            error_message="PEAR finished but assembled.fastq is empty or missing.",
         )
 
     merge_rate = 0.0

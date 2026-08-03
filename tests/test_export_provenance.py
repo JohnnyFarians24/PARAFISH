@@ -43,11 +43,11 @@ class RenderProvenanceTests(unittest.TestCase):
     def test_missing_versions_are_declared_as_a_known_gap(self):
         # Parameters without versions is half a recipe; the file must say so, not look complete.
         text = render_provenance(_CONFIG, None)
-        self.assertIn("lacuna conhecida", text)
+        self.assertIn("known gap", text)
 
     def test_a_run_without_a_recorded_recipe_says_so(self):
         text = render_provenance({}, [("vsearch", "2.30.0")])
-        self.assertIn("não foi registada", text)
+        self.assertIn("was not recorded", text)
 
 
 class ZipProvenanceTests(unittest.TestCase):

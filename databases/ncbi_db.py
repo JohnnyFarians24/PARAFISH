@@ -89,17 +89,17 @@ class NCBIConfig:
 	def validate(self) -> List[str]:
 		errors: List[str] = []
 		if not shutil.which(BLASTN_PATH) and not os.path.isfile(BLASTN_PATH):
-			errors.append("blastn nao encontrado no PATH. Instala BLAST+ ou ajusta BLASTN_PATH.")
+			errors.append("blastn not found on PATH. Install BLAST+ or adjust BLASTN_PATH.")
 		if not self.use_remote and self.local_db_path is None:
-			errors.append("NCBIConfig: define local_db_path ou activa use_remote=True.")
+			errors.append("NCBIConfig: set local_db_path or enable use_remote=True.")
 		if not self.use_remote and self.local_db_path is not None:
 			nal = self.local_db_path.with_suffix(".nal")
 			nin = self.local_db_path.with_suffix(".nin")
 			if not nal.exists() and not nin.exists():
 				errors.append(
-					f"Base BLAST local nao encontrada em: {self.local_db_path}\n"
-					f"  Esperado: {nal} ou {nin}\n"
-					f"  Usa update_blastdb.pl --decompress nt ou define use_remote=True."
+					f"Local BLAST database not found at: {self.local_db_path}\n"
+					f"  Expected: {nal} or {nin}\n"
+					f"  Use update_blastdb.pl --decompress nt, or set use_remote=True."
 				)
 		return errors
 
@@ -200,9 +200,9 @@ def run_blast(fasta_path: Path, config: NCBIConfig, output_dir: Path) -> StepOut
 				files={},
 				log=log_path,
 				error_message=(
-					f"BLAST excedeu o timeout de {timeout}s. O BLAST remoto corre nos servidores do NCBI "
-					f"e demora cerca de 1 min por sequência, mais fila de espera. Aumenta NCBI_TIMEOUT_SEC "
-					f"no .env, ou reduz o número de sequências."
+					f"BLAST exceeded the {timeout}s timeout. Remote BLAST runs on NCBI's servers "
+					f"and takes about 1 min per sequence, plus queueing. Raise NCBI_TIMEOUT_SEC "
+					f"in .env, or reduce the number of sequences."
 				),
 			)
 		except subprocess.CalledProcessError as exc:
@@ -233,21 +233,21 @@ def run_blast(fasta_path: Path, config: NCBIConfig, output_dir: Path) -> StepOut
 		# NCBI; no timeout or retry helps, so say what actually needs to change.
 		if "MBEDTLS" in last_detail or "Failed to receive reply" in last_detail:
 			detail = (
-				"o blastn instalado nao consegue falar com o NCBI (erro de TLS/MBEDTLS, tipico do "
-				"pacote blast 2.9.0 do Ubuntu). Instala o BLAST+ oficial e aponta BLASTN_PATH para ele: "
+				"the installed blastn cannot talk to NCBI (TLS/MBEDTLS error, typical of the "
+				"Ubuntu blast 2.9.0 package). Install the official BLAST+ and point BLASTN_PATH at it: "
 				"https://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/"
 			)
 		elif "cpu usage limit" in last_detail.lower() or "sigxcpu" in last_detail.lower():
 			detail = (
-				f"o NCBI recusou a pesquisa por exceder a quota de CPU pública (SIGXCPU) em "
-				f"{len(REMOTE_BACKOFF_SEC)} tentativas espaçadas. Isto é uma RECUSA do servidor, não "
-				f"ausência de hits. task='{config.task}'"
+				f"NCBI refused the search for exceeding the public CPU quota (SIGXCPU) across "
+				f"{len(REMOTE_BACKOFF_SEC)} spaced-out attempts. This is a server REFUSAL, not "
+				f"an absence of hits. task='{config.task}'"
 				+ (f", word_size={config.word_size}" if config.word_size else "")
-				+ ". Buscas mais sensíveis (task=blastn/dc-megablast, word_size baixo) contra o nt "
-				"inteiro são recusadas pela quota pública; usa task=megablast, ou uma base BLAST local."
+				+ ". More sensitive searches (task=blastn/dc-megablast, low word_size) against the whole "
+				"nt database are refused by the public quota; use task=megablast, or a local BLAST database."
 			)
 		else:
-			detail = f"blastn falhou: {last_detail[:400]}"
+			detail = f"blastn failed: {last_detail[:400]}"
 		return StepOutput(step_name="blast", success=False, files={}, log=log_path, error_message=detail)
 
 	if not result_path.exists():

@@ -72,7 +72,7 @@ def run_trimmomatic(sample: Sample, config: RunConfig) -> StepOutput:
             success=False,
             files={},
             log=None,
-            error_message=f"Amostra PE sem R2 válido: {sample.internal_id}",
+            error_message=f"Paired-end sample with no valid R2: {sample.internal_id}",
         )
 
     if sample.mode == AnalysisMode.PE:
@@ -131,7 +131,7 @@ def run_trimmomatic(sample: Sample, config: RunConfig) -> StepOutput:
             success=False,
             files=files,
             log=log_path,
-            error_message=f"Trimmomatic falhou: {exc}",
+            error_message=f"Trimmomatic failed: {exc}",
         )
 
     read_counts = []
@@ -146,7 +146,7 @@ def run_trimmomatic(sample: Sample, config: RunConfig) -> StepOutput:
             success=False,
             files=files,
             log=log_path,
-            error_message="Trimming produziu 0 reads. Verifica os parâmetros MINLEN e adaptadores.",
+            error_message="Trimming produced 0 reads. Check the MINLEN parameter and the adapter file.",
         )
 
     return StepOutput(

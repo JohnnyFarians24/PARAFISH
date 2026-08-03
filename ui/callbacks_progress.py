@@ -155,13 +155,13 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
 
     def _ensure_existing_path(path_value, stage_name: str, sample_id: str, label: str):
         if path_value is None or path_value == "":
-            entry = _log_entry(utc_now_iso(), "ERR", f"{stage_name}: {label} ausente para {sample_id}")
+            entry = _log_entry(utc_now_iso(), "ERR", f"{stage_name}: {label} missing for {sample_id}")
             logs.append(entry)
             append_log(progress_path, entry)
             return None
         candidate = Path(path_value)
         if not candidate.exists():
-            entry = _log_entry(utc_now_iso(), "ERR", f"{stage_name}: {label} inexistente para {sample_id}: {candidate}")
+            entry = _log_entry(utc_now_iso(), "ERR", f"{stage_name}: {label} does not exist for {sample_id}: {candidate}")
             logs.append(entry)
             append_log(progress_path, entry)
             return None
@@ -214,7 +214,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     key: str(path) for key, path in build_qc_metrics(run_config.output_dir / "qc").items()
                 }
             except Exception as exc:
-                entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao construir métricas de QC: {exc}")
+                entry = _log_entry(utc_now_iso(), "ERR", f"Failed to build QC metrics: {exc}")
                 logs.append(entry)
                 append_log(progress_path, entry)
             qc_record = {
@@ -339,7 +339,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     key: str(path) for key, path in build_preprocess_metrics(run_config.output_dir / "preprocess").items()
                 }
             except Exception as exc:
-                entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao construir métricas de preprocess: {exc}")
+                entry = _log_entry(utc_now_iso(), "ERR", f"Failed to build preprocess metrics: {exc}")
                 logs.append(entry)
                 append_log(progress_path, entry)
             preprocess_record = {
@@ -414,7 +414,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     # worth shouting about — its reads are simply absent from the OTU
                     # table — but it must not discard the samples that did work.
                     if not assembled_value:
-                        dropped_samples.append(f"{sample_id} (sem input)")
+                        dropped_samples.append(f"{sample_id} (no input)")
                         entry = _log_entry(utc_now_iso(), "ERR", f"No input FASTA/FASTQ for {sample_id}")
                         logs.append(entry)
                         append_log(progress_path, entry)
@@ -422,7 +422,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
 
                     assembled_path = Path(assembled_value)
                     if not assembled_path.exists():
-                        dropped_samples.append(f"{sample_id} (input inexistente)")
+                        dropped_samples.append(f"{sample_id} (input does not exist)")
                         entry = _log_entry(utc_now_iso(), "ERR", f"Input missing: {assembled_path}")
                         logs.append(entry)
                         append_log(progress_path, entry)
@@ -463,7 +463,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                                 matrix.to_csv(matrix_path, index=False)
                                 analysis_outputs["otu_matrix"] = str(matrix_path)
                             except Exception as exc:
-                                entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao converter otu_table para CSV: {exc}")
+                                entry = _log_entry(utc_now_iso(), "ERR", f"Failed to convert otu_table to CSV: {exc}")
                                 logs.append(entry)
                                 append_log(progress_path, entry)
                     else:
@@ -473,9 +473,9 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                         logs.append(entry)
                         append_log(progress_path, entry)
                 else:
-                    branch_errors["otu"] = "nenhuma amostra produziu reads filtradas"
+                    branch_errors["otu"] = "no sample produced filtered reads"
                     analysis_outputs["combined_fasta_vsearch"] = ""
-                    entry = _log_entry(utc_now_iso(), "ERR", "Analysis: nenhuma amostra produziu reads filtradas para VSEARCH.")
+                    entry = _log_entry(utc_now_iso(), "ERR", "Analysis: no sample produced filtered reads for VSEARCH.")
                     logs.append(entry)
                     append_log(progress_path, entry)
 
@@ -519,7 +519,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 analysis_outputs["combined_fasta_vsearch"] = vsearch_fasta or ""
             if not run_vsearch_branch and not run_dada2_branch:
                 success = False
-                entry = _log_entry(utc_now_iso(), "ERR", f"Analysis method inválido: {analysis_method}")
+                entry = _log_entry(utc_now_iso(), "ERR", f"Invalid analysis method: {analysis_method}")
                 logs.append(entry)
                 append_log(progress_path, entry)
 
@@ -553,8 +553,8 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 entry = _log_entry(
                     utc_now_iso(),
                     "WARN",
-                    f"Amostras excluídas da tabela de features: {', '.join(dropped_samples)}. "
-                    f"As reads destas amostras NÃO estão nos resultados.",
+                    f"Samples excluded from the feature table: {', '.join(dropped_samples)}. "
+                    f"The reads from these samples are NOT in the results.",
                 )
                 logs.append(entry)
                 append_log(progress_path, entry)
@@ -563,7 +563,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 entry = _log_entry(
                     utc_now_iso(),
                     "WARN",
-                    f"Análise parcial — continuo com {len(feature_sets)} conjunto(s). Falhou → {degraded}",
+                    f"Partial analysis — continuing with {len(feature_sets)} set(s). Failed → {degraded}",
                 )
                 logs.append(entry)
                 append_log(progress_path, entry)
@@ -575,7 +575,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
             try:
                 analysis_metrics_files = build_metrics_from_outputs(run_config.output_dir / "analysis", analysis_outputs)
             except Exception as exc:
-                entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao construir métricas de análise: {exc}")
+                entry = _log_entry(utc_now_iso(), "ERR", f"Failed to build analysis metrics: {exc}")
                 logs.append(entry)
                 append_log(progress_path, entry)
 
@@ -596,7 +596,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     preprocess_record["metrics_files"] = dict(preprocess_metrics_files)
                     progress_state["preprocess_record"] = preprocess_record
             except Exception as exc:
-                entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao completar o read-tracking com a análise: {exc}")
+                entry = _log_entry(utc_now_iso(), "ERR", f"Failed to complete read tracking with the analysis: {exc}")
                 logs.append(entry)
                 append_log(progress_path, entry)
             analysis_record = {
@@ -626,7 +626,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
             stages["Databases"] = "running"
             _publish()
             if not feature_sets:
-                entry = _log_entry(utc_now_iso(), "ERR", "Databases: a análise não produziu nenhum feature set (OTU/ASV)")
+                entry = _log_entry(utc_now_iso(), "ERR", "Databases: the analysis produced no feature set (OTU/ASV)")
                 logs.append(entry)
                 append_log(progress_path, entry)
                 db_record = _failed_record(run_config.run_id, databases_outputs, logs)
@@ -636,7 +636,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 _write_progress_state()
                 _publish()
             elif analysis_record.get("status") not in ("success", "skipped"):
-                entry = _log_entry(utc_now_iso(), "ERR", "Databases: análise anterior falhou")
+                entry = _log_entry(utc_now_iso(), "ERR", "Databases: the previous analysis failed")
                 logs.append(entry)
                 append_log(progress_path, entry)
                 db_record = _failed_record(run_config.run_id, databases_outputs, logs)
@@ -710,7 +710,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     entry = _log_entry(
                         utc_now_iso(),
                         "RUN",
-                        f"NCBI: {'base local' if use_local_blast else 'remoto público (nt)'} · task={ncbi_config.task}",
+                        f"NCBI: {'local database' if use_local_blast else 'public remote (nt)'} · task={ncbi_config.task}",
                     )
                     logs.append(entry)
                     append_log(progress_path, entry)
@@ -732,7 +732,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     key = feature_set["key"]
                     fasta_path = feature_set["fasta"]
                     abundance_matrix_path = feature_set["matrix"]
-                    entry = _log_entry(utc_now_iso(), "RUN", f"Taxonomia para {feature_set['label']}")
+                    entry = _log_entry(utc_now_iso(), "RUN", f"Taxonomy for {feature_set['label']}")
                     logs.append(entry)
                     append_log(progress_path, entry)
 
@@ -777,7 +777,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                             ).items()
                         }
                     except Exception as exc:
-                        entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao construir métricas de taxonomia ({key}): {exc}")
+                        entry = _log_entry(utc_now_iso(), "ERR", f"Failed to build taxonomy metrics ({key}): {exc}")
                         logs.append(entry)
                         append_log(progress_path, entry)
 
@@ -799,11 +799,11 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                             consensus_by_set=consensus_by_set,
                         )
                         databases_outputs["feature_set_comparison"] = {k: str(v) for k, v in comparison_files.items()}
-                        entry = _log_entry(utc_now_iso(), "OK", "Comparação OTU vs ASV escrita (tabelas separadas + ponte por taxon)")
+                        entry = _log_entry(utc_now_iso(), "OK", "OTU vs ASV comparison written (separate tables + taxon bridge)")
                         logs.append(entry)
                         append_log(progress_path, entry)
                     except Exception as exc:
-                        entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao comparar OTU/ASV: {exc}")
+                        entry = _log_entry(utc_now_iso(), "ERR", f"Failed to compare OTU/ASV: {exc}")
                         logs.append(entry)
                         append_log(progress_path, entry)
 
@@ -867,7 +867,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     continue
 
                 phylo_attempted = True
-                entry = _log_entry(utc_now_iso(), "RUN", f"Árvore para {feature_set['label']}")
+                entry = _log_entry(utc_now_iso(), "RUN", f"Tree for {feature_set['label']}")
                 logs.append(entry)
                 append_log(progress_path, entry)
                 phylo_result = run_phylo_step(phylo_path, run_config, run_config.output_dir / "phylo" / key)
@@ -893,12 +893,12 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                         str(feature_set["matrix"]) if feature_set["matrix"] else None,
                     )
                 except Exception as exc:
-                    entry = _log_entry(utc_now_iso(), "ERR", f"Falha ao construir métricas de filogenia ({key}): {exc}")
+                    entry = _log_entry(utc_now_iso(), "ERR", f"Failed to build phylogeny metrics ({key}): {exc}")
                     logs.append(entry)
                     append_log(progress_path, entry)
 
             if not phylo_attempted:
-                entry = _log_entry(utc_now_iso(), "ERR", "Phylo: nenhum feature set com sequências suficientes")
+                entry = _log_entry(utc_now_iso(), "ERR", "Phylo: no feature set has enough sequences")
                 logs.append(entry)
                 append_log(progress_path, entry)
                 phylo_record = _failed_record(run_config.run_id, phylo_outputs, logs)

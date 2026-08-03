@@ -108,7 +108,7 @@ def run_vsearch_filter_sample(assembled_fastq: Path, config: RunConfig, output_d
     """Quality-filter one sample's reads, tagging them for later pooling."""
     assembled = Path(assembled_fastq)
     if not assembled.exists():
-        return StepOutput(step_name="vsearch_filter", success=False, files={}, error_message=f"FASTQ assembled não encontrado: {assembled}.")
+        return StepOutput(step_name="vsearch_filter", success=False, files={}, error_message=f"Assembled FASTQ not found: {assembled}.")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     filtered = output_dir / "filtered.fasta"
@@ -145,7 +145,7 @@ def run_vsearch_filter_sample(assembled_fastq: Path, config: RunConfig, output_d
     try:
         _run(command)
     except subprocess.CalledProcessError as exc:
-        return StepOutput(step_name="vsearch_filter", success=False, files={"log": log_path}, log=log_path, error_message=f"VSEARCH filter falhou: {exc}")
+        return StepOutput(step_name="vsearch_filter", success=False, files={"log": log_path}, log=log_path, error_message=f"VSEARCH filter failed: {exc}")
 
     # Illumina FASTQ headers carry a description after a space
     # (e.g. "A01426:...:1423 1:N:0:ACGTATGG+CTCTTGTC"). VSEARCH's --sample appends
@@ -163,7 +163,7 @@ def run_vsearch_filter_sample(assembled_fastq: Path, config: RunConfig, output_d
             success=False,
             files={"filtered_fasta": filtered, "log": log_path},
             log=log_path,
-            error_message="Filtragem produziu 0 reads. Verifica fastq_maxee/fastq_minlen.",
+            error_message="Filtering produced 0 reads. Check fastq_maxee/fastq_minlen.",
         )
 
     return StepOutput(step_name="vsearch_filter", success=True, files={"filtered_fasta": filtered, "log": log_path}, log=log_path)
@@ -293,7 +293,7 @@ def run_vsearch_pool_and_cluster(filtered_fastas: Dict[str, Path], config: RunCo
     """
     identity = float(config.vsearch_params.get("id", 0.97))
     if identity < 0.8 or identity > 1.0:
-        return StepOutput(step_name="vsearch_pool", success=False, files={}, error_message="Parâmetro --id fora do intervalo permitido [0.8, 1.0].")
+        return StepOutput(step_name="vsearch_pool", success=False, files={}, error_message="Parameter --id is outside the allowed range [0.8, 1.0].")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     pooled = output_dir / "pooled_filtered.fasta"
@@ -314,7 +314,7 @@ def run_vsearch_pool_and_cluster(filtered_fastas: Dict[str, Path], config: RunCo
                 out_handle.write(path.read_text(encoding="utf-8", errors="replace"))
 
     if _count_fasta_seqs(pooled) == 0:
-        return StepOutput(step_name="vsearch_pool", success=False, files={}, error_message="Nenhuma amostra produziu reads filtradas para agrupar.")
+        return StepOutput(step_name="vsearch_pool", success=False, files={}, error_message="No sample produced filtered reads to pool.")
 
     threads = str(config.vsearch_params.get("threads") or 8)
     # The smallest cluster allowed to seed an OTU; see SINGLETON_POLICY above. The
@@ -354,7 +354,7 @@ def run_vsearch_pool_and_cluster(filtered_fastas: Dict[str, Path], config: RunCo
             pieces.append((completed.stdout or "") + "\n" + (completed.stderr or ""))
     except subprocess.CalledProcessError as exc:
         combined_log.write_text("\n".join(pieces) + "\n" + str(exc), encoding="utf-8")
-        return StepOutput(step_name="vsearch_pool", success=False, files={}, log=combined_log, error_message=f"VSEARCH (pool/cluster/chimera) falhou: {exc}")
+        return StepOutput(step_name="vsearch_pool", success=False, files={}, log=combined_log, error_message=f"VSEARCH (pool/cluster/chimera) failed: {exc}")
 
     otu_map = output_dir / "otu_id_map.csv"
 
@@ -365,7 +365,7 @@ def run_vsearch_pool_and_cluster(filtered_fastas: Dict[str, Path], config: RunCo
             success=False,
             files={"otus_raw_fasta": otus_raw, "chimeras_fasta": chimeras, "chimera_uchime": chimera_uchime, "clusters_uc": clusters_uc, "log": combined_log},
             log=combined_log,
-            error_message="Clustering global produziu 0 OTUs não-quiméricas. Verifica o parâmetro --id e a qualidade das reads.",
+            error_message="Global clustering produced 0 OTUs after chimera removal. Check the --id parameter and the read quality.",
         )
 
     try:
@@ -389,7 +389,7 @@ def run_vsearch_pool_and_cluster(filtered_fastas: Dict[str, Path], config: RunCo
         pieces.append((completed.stdout or "") + "\n" + (completed.stderr or ""))
     except subprocess.CalledProcessError as exc:
         combined_log.write_text("\n".join(pieces) + "\n" + str(exc), encoding="utf-8")
-        return StepOutput(step_name="vsearch_pool", success=False, files={"otus_fasta": otus}, log=combined_log, error_message=f"Construção da tabela de OTUs falhou: {exc}")
+        return StepOutput(step_name="vsearch_pool", success=False, files={"otus_fasta": otus}, log=combined_log, error_message=f"Building the OTU table failed: {exc}")
 
     # Written only now, and deliberately: its ``size`` is the OTU's total in the mapping
     # table above, so it cannot be produced before that table exists. It used to be

@@ -169,7 +169,7 @@ def register_callbacks(app: Any) -> None:
                 "status": "blocked" if blocker else "pending",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "INF", "msg": "Phylo aguardando entradas concluídas"}],
+                "log_lines": [{"ts": utc_now_iso(), "level": "INF", "msg": "Phylo waiting for its inputs to complete"}],
                 "blocked_by": blocker,
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
@@ -180,7 +180,7 @@ def register_callbacks(app: Any) -> None:
                 "status": "pending",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "INF", "msg": "Phylo aguardando taxonomia concluída"}],
+                "log_lines": [{"ts": utc_now_iso(), "level": "INF", "msg": "Phylo waiting for taxonomy to complete"}],
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
@@ -195,8 +195,8 @@ def register_callbacks(app: Any) -> None:
                 "status": "failure",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": "Nenhum FASTA disponível para phylo"}],
-                "error_message": "Nenhum FASTA disponível para phylo",
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": "No FASTA available for phylo"}],
+                "error_message": "No FASTA available for phylo",
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
@@ -207,8 +207,8 @@ def register_callbacks(app: Any) -> None:
                 "status": "failure",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"FASTA nao encontrado: {fasta_path}"}],
-                "error_message": f"FASTA nao encontrado: {fasta_path}",
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"FASTA not found: {fasta_path}"}],
+                "error_message": f"FASTA not found: {fasta_path}",
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
@@ -231,8 +231,8 @@ def register_callbacks(app: Any) -> None:
                 "status": "failure",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"Falha a ler FASTA para phylo: {exc}"}],
-                "error_message": f"Falha a ler FASTA para phylo: {exc}",
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"Failed to read the FASTA for phylo: {exc}"}],
+                "error_message": f"Failed to read the FASTA for phylo: {exc}",
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
@@ -267,7 +267,7 @@ def register_callbacks(app: Any) -> None:
             )
         except Exception as exc:
             metrics_files = {}
-            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Falha ao construir métricas de filogenia: {exc}"})
+            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Failed to build phylogeny metrics: {exc}"})
 
         record = {
             "signature": signature,
@@ -545,7 +545,7 @@ def register_phylo_kpis(app) -> None:
         record = stage_record(state, "phylo")
         status = str(record.get("status") or "pending")
         if status in ("pending", "skipped") or not record.get("outputs"):
-            blank = card("—", "Phylo", hint="a etapa não correu")
+            blank = card("—", "Phylo", hint="this stage did not run")
             return blank, blank, blank
 
         from ui.feature_sets import phylo_tree_path
@@ -574,7 +574,7 @@ def register_phylo_kpis(app) -> None:
                 pass
 
         return (
-            card(tips, "Sequências na árvore"),
+            card(tips, "Sequences in the tree"),
             card(align_len, "Comprimento do alinhamento"),
             card(support_median, "Suporte bootstrap (mediana)"),
         )

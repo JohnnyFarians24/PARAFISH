@@ -95,7 +95,7 @@ def parse_sample_names(filenames: list[str]):
         se_files = [(f, p) for f, p in zip(files_list, parsed_list) if p.mode == "SE"]
         pe_files = [(f, p) for f, p in zip(files_list, parsed_list) if p.mode == "PE"]
 
-        # Cada SE é uma amostra individual
+        # Each SE file is its own sample
         for f, p in se_files:
             idx += 1
             internal = f"{_slug(base)}_{idx:02d}"
@@ -116,7 +116,7 @@ def parse_sample_names(filenames: list[str]):
         # PE: agrupa por pares (mate 1 + mate 2)
         r1_files = [(f, p) for f, p in pe_files if p.mate == 1]
         r2_files = [(f, p) for f, p in pe_files if p.mate == 2]
-        # Emparelha por ordem se contagens iguais, fallback para alfabético
+        # Pair by order when the counts match, falling back to alphabetical
         pairs = list(zip(
             sorted(r1_files, key=lambda x: x[0]),
             sorted(r2_files, key=lambda x: x[0]),
@@ -137,7 +137,7 @@ def parse_sample_names(filenames: list[str]):
                 "r1": f1,
                 "r2": f2,
             })
-        # PE sem par (ímpar): SE fallback
+        # Unpaired PE (odd count): fall back to SE
         if len(r1_files) != len(r2_files):
             unpaired = r1_files[len(pairs):] + r2_files[len(pairs):]
             for f, p in unpaired:

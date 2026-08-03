@@ -41,10 +41,10 @@ class SILVAConfig:
 	def validate(self) -> list[str]:
 		errors = []
 		if not self.db_path.exists():
-			errors.append(f"Base SILVA nao encontrada: {self.db_path}")
+			errors.append(f"SILVA database not found: {self.db_path}")
 		valid_suffixes = {".fasta", ".fa", ".fna", ".gz"}
 		if self.db_path.suffix not in valid_suffixes:
-			errors.append(f"Extensao nao reconhecida para SILVA: {self.db_path.suffix}")
+			errors.append(f"Unrecognised SILVA file extension: {self.db_path.suffix}")
 		return errors
 
 	def _decompressed_path(self) -> Path:
@@ -75,7 +75,7 @@ def load_silva(db_path: Path, version: str = "138.2", target: str = "SSU") -> SI
 	config = SILVAConfig(db_path=db_path, version=version, target=target)
 	errors = config.validate()
 	if errors:
-		raise ValueError(f"SILVA invalido: {'; '.join(errors)}")
+		raise ValueError(f"SILVA invalid: {'; '.join(errors)}")
 	return config
 
 

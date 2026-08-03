@@ -157,28 +157,28 @@ def ensure_bold_metadata_db(db_dir: Path) -> tuple[Optional[Path], Optional[str]
 		if has_table and rows > 0:
 			return existing, None
 		if has_table:
-			return existing, "Base local BOLD sem registos: os metadados do espécime virão vazios."
+			return existing, "Local BOLD database has no records: specimen metadata will come back empty."
 		target = existing
 		note = (
-			f"A base local BOLD ({existing.name}) está vazia — o download do BOLD terminou o "
-			f"parquet mas ficou sem memória ao construir o DuckDB. Criada uma tabela de "
-			f"metadados vazia para a identificação poder correr: a taxonomia e o % identidade "
-			f"vêm da API remota do BOLD e não são afetados; só os metadados do espécime "
-			f"(sexo, instituição, país) ficam por preencher."
+			f"The local BOLD database ({existing.name}) is empty — the BOLD download finished the "
+			f"parquet but ran out of memory building the DuckDB. An empty metadata table was "
+			f"created so identification can still run: the taxonomy and the % identity "
+			f"come from the remote BOLD API and are unaffected; only the specimen metadata "
+			f"(sex, institution, country) is left blank."
 		)
 	else:
 		db_dir.mkdir(parents=True, exist_ok=True)
 		target = db_dir / "BOLD_metadata_empty.ddb"
 		note = (
-			"Sem base local BOLD. Criada uma tabela de metadados vazia: a identificação "
-			"(taxonomia e % identidade) vem da API remota do BOLD e funciona à mesma."
+			"No local BOLD database. An empty metadata table was created: identification "
+			"(taxonomy and % identity) comes from the remote BOLD API and works regardless."
 		)
 
 	try:
 		with duckdb.connect(str(target)) as con:
 			con.execute(f"CREATE TABLE IF NOT EXISTS bold_public ({', '.join(_BOLD_METADATA_COLUMNS)})")
 	except Exception as exc:
-		return existing, f"Não foi possível preparar a base local BOLD: {exc}"
+		return existing, f"Could not prepare the local BOLD database: {exc}"
 	return target, note
 
 
@@ -193,16 +193,16 @@ class BOLDConfig:
 	def validate(self) -> List[str]:
 		errors: List[str] = []
 		if not boldigger_available():
-			errors.append("boldigger3 nao encontrado no PATH e BOLDIGGER_PYTHON nao esta definido. Instala com: pip install 'boldigger3>=3'")
+			errors.append("boldigger3 not found on PATH and BOLDIGGER_PYTHON is not set. Install with: pip install 'boldigger3>=3'")
 		else:
 			# When the version cannot be determined, assume the caller knows what it
 			# is doing rather than blocking the run on a guess.
 			version = boldigger_version()
 			if version is not None and version < MIN_BOLDIGGER_VERSION:
 				errors.append(
-					f"boldigger3 {_format_version(version)} tem um bug conhecido (id_engine chama 'pbar.total(...)') "
-					f"que faz crashar a identificacao assim que o BOLD reenfileira um download. "
-					f"Atualiza com: pip install -U 'boldigger3>=3'"
+					f"boldigger3 {_format_version(version)} has a known bug (id_engine calls 'pbar.total(...)') "
+					f"that crashes identification as soon as BOLD re-queues a download. "
+					f"Update with: pip install -U 'boldigger3>=3'"
 				)
 		# NOTE: deliberately no local-*.ddb check. ``identify`` queries the remote
 		# BOLD v5 engine and never opens a local database, so requiring one here only
@@ -581,12 +581,12 @@ def run_boldigger(fasta_path: Path, config: BOLDConfig, output_dir: Path) -> Ste
 		except subprocess.CalledProcessError as exc:
 			output = (exc.stdout or "") + "\n" + (exc.stderr or "")
 			log_lines.append(output)
-			last_error = f"boldigger3 falhou: {str(exc.stderr or exc.stdout or exc)[:400]}"
+			last_error = f"boldigger3 failed: {str(exc.stderr or exc.stdout or exc)[:400]}"
 			# A 503 is BOLD rate-limiting us, not a bad request: waiting and resuming
 			# is the correct response, and the run so far is preserved on disk.
 			transient = "503" in output or "KeyError" in output
 			if transient and attempt < BOLD_ATTEMPTS:
-				log_lines.append(f"BOLD indisponivel (503). Nova tentativa em {BOLD_RETRY_BACKOFF_SEC}s...")
+				log_lines.append(f"BOLD unavailable (503). Retrying in {BOLD_RETRY_BACKOFF_SEC}s...")
 				time.sleep(BOLD_RETRY_BACKOFF_SEC)
 				continue
 			break
@@ -600,9 +600,9 @@ def run_boldigger(fasta_path: Path, config: BOLDConfig, output_dir: Path) -> Ste
 		if files:
 			salvaged = True
 			log_lines.append(
-				"BOLDigger3 crashou depois de identificar (bug conhecido: nao trata o codigo 503 do BOLD). "
-				"Resultados recuperados do armazenamento de identificacao; so os metadados extra do "
-				"especime (sexo, instituicao) se perderam."
+				"BOLDigger3 crashed after identifying (known bug: it does not handle BOLD's 503 code). "
+				"Results recovered from the identification store; only the extra specimen metadata "
+				"(sex, institution) was lost."
 			)
 
 	for path in files.values():
@@ -610,7 +610,7 @@ def run_boldigger(fasta_path: Path, config: BOLDConfig, output_dir: Path) -> Ste
 	log_path.write_text("\n".join(log_lines), encoding="utf-8")
 
 	if not files:
-		message = last_error or "BOLDigger3 executou sem erro mas nao gerou outputs."
+		message = last_error or "BOLDigger3 exited cleanly but produced no outputs."
 		return StepOutput(step_name="boldigger", success=False, files={}, log=log_path, error_message=message)
 
 	return StepOutput(
@@ -618,7 +618,7 @@ def run_boldigger(fasta_path: Path, config: BOLDConfig, output_dir: Path) -> Ste
 		success=True,
 		files=files,
 		log=log_path,
-		error_message=("BOLD recuperado apos falha do boldigger3 (ver log)." if salvaged else None),
+		error_message=("BOLD results salvaged after a boldigger3 failure (see log)." if salvaged else None),
 	)
 
 

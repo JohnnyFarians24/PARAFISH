@@ -489,12 +489,12 @@ class SintaxStatusColumnTests(unittest.TestCase):
         # An alignment-only feature in a run where SINTAX DID run: the empty SINTAX cell means
         # this feature got no k-mer call, not that SINTAX was absent.
         records = {"OTU1": [{"source": "NCBI", "species": "Gadus morhua", "genus": "Gadus", "similarity": "99", "coverage": "100"}]}
-        self.assertEqual(self._summary(records, sintax_ran=True)["OTU1"]["sintax_status"], "sem atribuição SINTAX")
+        self.assertEqual(self._summary(records, sintax_ran=True)["OTU1"]["sintax_status"], "no SINTAX assignment")
 
     def test_empty_when_sintax_absent_points_to_source_status(self):
         records = {"OTU1": [{"source": "NCBI", "species": "Gadus morhua", "genus": "Gadus", "similarity": "99", "coverage": "100"}]}
         cell = self._summary(records, sintax_ran=False)["OTU1"]["sintax_status"]
-        self.assertIn("não corrido", cell)
+        self.assertIn("not run", cell)
         self.assertIn("source_status.csv", cell)
 
     def test_sintax_ran_is_read_from_the_source_status_report(self):

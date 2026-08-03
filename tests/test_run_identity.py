@@ -199,7 +199,7 @@ class WaitingBannerTests(unittest.TestCase):
             payload = self._banners({"run_id": "20260724T000000Z", "output_dir": str(run_dir)})
 
         banner = json.dumps(payload["databases-run-banner"]["children"], ensure_ascii=False)
-        self.assertIn("ainda não correu nesta run", banner)
+        self.assertIn("has not run in this run yet", banner)
 
     def test_no_banner_when_the_run_has_finished(self):
         """A finished run has nothing pending; the page's own empty state stands."""

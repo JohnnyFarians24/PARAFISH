@@ -93,10 +93,10 @@ def assign_taxonomy_memory_shortfall(ref_fasta: Path) -> Optional[str]:
     if needed <= available:
         return None
     return (
-        f"assignTaxonomy() ignorado: a referencia ({size / 1e9:.1f} GB) precisa de cerca de "
-        f"{needed / 1e9:.1f} GB de RAM e so ha {available / 1e9:.1f} GB disponiveis. "
-        f"As ASVs sao geradas na mesma; a taxonomia vem da etapa de bases de dados "
-        f"(SINTAX/BLAST/BOLD), que nao carrega a referencia toda para memoria."
+        f"assignTaxonomy() skipped: the reference ({size / 1e9:.1f} GB) needs about "
+        f"{needed / 1e9:.1f} GB of RAM and only {available / 1e9:.1f} GB is available. "
+        f"The ASVs are still produced; taxonomy comes from the Databases stage "
+        f"(SINTAX/BLAST/BOLD), which does not load the whole reference into memory."
     )
 
 
@@ -428,7 +428,7 @@ def run_dada2(samples: List[Sample], config: RunConfig, output_dir: Optional[Pat
     # fits in RAM — otherwise R gets SIGKILLed and the ASVs are lost along with it.
     ref_fasta = str(config.dada2_params.get("ref_fasta") or "")
     if ref_fasta and not Path(ref_fasta).exists():
-        warnings.append(f"Referencia DADA2 nao encontrada ({ref_fasta}); assignTaxonomy() ignorado.")
+        warnings.append(f"DADA2 reference not found ({ref_fasta}); assignTaxonomy() skipped.")
         ref_fasta = ""
     if ref_fasta:
         shortfall = assign_taxonomy_memory_shortfall(Path(ref_fasta))
@@ -457,14 +457,14 @@ def run_dada2(samples: List[Sample], config: RunConfig, output_dir: Optional[Pat
         trunc_len_f = 0
         trunc_len_r = 0
     if has_its:
-        warnings.append("ITS detectado: truncLen configurado para 0,0.")
+        warnings.append("ITS detected: truncLen set to 0,0.")
 
     err_nbases = int(config.dada2_params.get("err_nbases") or learn_errors_nbases())
     if err_nbases < DEFAULT_ERR_NBASES:
         warnings.append(
-            f"Modelo de erro limitado a {err_nbases / 1e6:.0f} Mbases (o normal e "
-            f"{DEFAULT_ERR_NBASES / 1e6:.0f}) para caber na memoria disponivel. "
-            f"E amostragem suficiente para o modelo convergir; nao afeta as ASVs."
+            f"Error model limited to {err_nbases / 1e6:.0f} Mbases (normally "
+            f"{DEFAULT_ERR_NBASES / 1e6:.0f}) to fit in the available memory. "
+            f"That is enough sampling for the model to converge; it does not affect the ASVs."
         )
 
     script_path.write_text(R_SCRIPT, encoding="utf-8")
@@ -508,16 +508,16 @@ def run_dada2(samples: List[Sample], config: RunConfig, output_dir: Optional[Pat
         # almost always the out-of-memory killer.
         if exc.returncode is not None and exc.returncode < 0:
             detail = (
-                f"R foi terminado pelo sistema (sinal {-exc.returncode}), quase de certeza por "
-                f"falta de memoria (OOM). Reduz o numero de amostras por run ou aumenta a RAM."
+                f"R was killed by the system (signal {-exc.returncode}), almost certainly for "
+                f"lack of memory (OOM). Reduce the number of samples per run, or raise the RAM."
             )
-        return StepOutput(step_name="dada2", success=False, files={"log": log_path}, log=log_path, error_message=f"DADA2 falhou: {detail}")
+        return StepOutput(step_name="dada2", success=False, files={"log": log_path}, log=log_path, error_message=f"DADA2 failed: {detail}")
 
     if not tracking_csv.exists():
-        return StepOutput(step_name="dada2", success=False, files={"log": log_path}, log=log_path, error_message="DADA2 nao gerou tracking de reads. Verifica o log R.")
+        return StepOutput(step_name="dada2", success=False, files={"log": log_path}, log=log_path, error_message="DADA2 produced no read tracking. Check the R log.")
 
     if not asv_fasta.exists() or _count_fasta_seqs(asv_fasta) == 0:
-        return StepOutput(step_name="dada2", success=False, files={"log": log_path}, log=log_path, error_message="DADA2 nao gerou ASVs validas.")
+        return StepOutput(step_name="dada2", success=False, files={"log": log_path}, log=log_path, error_message="DADA2 produced no valid ASVs.")
 
     return StepOutput(
         step_name="dada2",

@@ -40,7 +40,7 @@ class TestSILVA(unittest.TestCase):
 		from databases.silva_db import load_silva
 		with self.assertRaises(ValueError) as ctx:
 			load_silva(Path("/nonexistent/silva.fasta"))
-		self.assertIn("nao encontrada", str(ctx.exception))
+		self.assertIn("not found", str(ctx.exception))
 
 
 class TestPR2(unittest.TestCase):
@@ -48,7 +48,7 @@ class TestPR2(unittest.TestCase):
 		from databases.pr2_db import load_pr2
 		with self.assertRaises(ValueError) as ctx:
 			load_pr2(Path("/nonexistent/pr2.fasta"))
-		self.assertIn("nao encontrada", str(ctx.exception))
+		self.assertIn("not found", str(ctx.exception))
 
 
 class TestNCBI(unittest.TestCase):
@@ -94,7 +94,7 @@ class TestNCBI(unittest.TestCase):
 		with tempfile.TemporaryDirectory() as temp_dir:
 			result = self._refusal_run(refusal, Path(temp_dir))
 		self.assertFalse(result.success)
-		self.assertIn("recusou", (result.error_message or "").lower())
+		self.assertIn("refused", (result.error_message or "").lower())
 		self.assertIn("megablast", (result.error_message or "").lower())
 
 	def test_a_clean_empty_result_is_not_treated_as_a_refusal(self):
@@ -290,7 +290,7 @@ class TestTaxonomyPipeline(unittest.TestCase):
 			fasta.write_text(">ASV1\nACGT\n", encoding="utf-8")
 			result = run_taxonomy_pipeline(fasta, temp_path / "taxonomy")
 			self.assertFalse(result.success)
-			self.assertIn("Nenhuma fonte", result.error_message or "")
+			self.assertIn("No taxonomy source", result.error_message or "")
 
 
 if __name__ == "__main__":
@@ -391,7 +391,7 @@ class SourceStatusTruthTests(unittest.TestCase):
             out = _reconcile_source_status(status, {}, 7)
 
         self.assertEqual(out[0]["status"], "failed")
-        self.assertIn("vazia", out[0]["detail"])
+        self.assertIn("empty or missing", out[0]["detail"])
 
     def test_a_missing_raw_output_is_also_a_failure(self):
         from databases.taxonomy_runner import _reconcile_source_status
@@ -426,11 +426,11 @@ class SourceStatusTruthTests(unittest.TestCase):
         # SILVA skipped for RAM must keep saying so, not be relabelled "no_hits".
         from databases.taxonomy_runner import _reconcile_source_status
 
-        status = [{"source": "SILVA", "status": "skipped", "detail": "ignorada: base maior que a RAM"}]
+        status = [{"source": "SILVA", "status": "skipped", "detail": "skipped: database larger than the available RAM"}]
         out = _reconcile_source_status(status, {}, 7)
 
         self.assertEqual(out[0]["status"], "skipped")
-        self.assertIn("ignorada", out[0]["detail"])
+        self.assertIn("skipped", out[0]["detail"])
 
     def test_reconciled_rows_carry_only_the_csv_columns(self):
         # key/raw are internal; DictWriter raises on extras.
@@ -565,8 +565,8 @@ class MarkerApplicabilityTests(unittest.TestCase):
 
         joined = " ".join(notes)
         self.assertIn("SILVA", joined)
-        self.assertIn("não aplicável", joined)
-        self.assertNotIn("reduzida ao teu marcador", joined)
+        self.assertIn("not applicable", joined)
+        self.assertNotIn("cut down to your marker", joined)
 
 
 class SetupMarkerReadoutTests(unittest.TestCase):

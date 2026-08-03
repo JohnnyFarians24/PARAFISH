@@ -323,7 +323,7 @@ def register_callbacks(app: Any) -> None:
             metrics_files = {key: str(path) for key, path in build_qc_metrics(run_config.output_dir / "qc").items()}
         except Exception as exc:
             metrics_files = {}
-            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Falha ao construir métricas de QC: {exc}"})
+            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Failed to build QC metrics: {exc}"})
 
         record = {
             "signature": signature,

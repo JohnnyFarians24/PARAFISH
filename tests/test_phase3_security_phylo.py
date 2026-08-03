@@ -127,7 +127,7 @@ class BOLDCredentialTests(unittest.TestCase):
 
 			path, note = ensure_bold_metadata_db(db_dir)
 			self.assertIsNotNone(path)
-			self.assertIn("vazia", (note or ""))
+			self.assertIn("is empty", (note or ""))
 			self.assertEqual(bold_metadata_db_status(path), (True, 0))
 
 	def test_boldigger_command_passes_db_path_on_modern_boldigger(self):

@@ -21,12 +21,12 @@ def _count_reads_with_wc(path: Path) -> int:
 
 
 def validate_sample_names(samples: List[Sample]) -> List[str]:
-    """Garante que os internal_id não contêm caracteres proibidos."""
+    """Ensure no internal_id contains a forbidden character."""
     errors: List[str] = []
     for sample in samples:
         for char in INVALID_SAMPLE_NAME_CHARS:
             if char in sample.internal_id:
-                errors.append(f"Sample ID inválido '{sample.internal_id}': contém '{char}'.")
+                errors.append(f"Invalid sample ID '{sample.internal_id}': contains '{char}'.")
                 break
     return errors
 
@@ -54,15 +54,15 @@ def validate_manifest(config: RunConfig) -> List[str]:
                     reads_r1 = _count_reads_with_wc(sample.paths.r1)
                     reads_r2 = _count_reads_with_wc(sample.paths.r2)
                     if reads_r1 != -1 and reads_r2 != -1 and reads_r1 != reads_r2:
-                        errors.append(f"R1 e R2 têm número diferente de linhas para {sample.internal_id}.")
+                        errors.append(f"R1 and R2 have a different number of lines for {sample.internal_id}.")
                 except Exception as exc:
-                    errors.append(f"Falha a contar reads para {sample.internal_id}: {exc}")
+                    errors.append(f"Failed to count reads for {sample.internal_id}: {exc}")
 
         if sample.mode == AnalysisMode.SE and not sample.paths.r1.exists():
             errors.append(f"Modo SE requer R1: {sample.internal_id}")
 
     if getattr(config, "analysis_method", "vsearch") in {"dada2", "both"} and config.dada2_params.get("ref_fasta") is None:
-        errors.append("DADA2 requer uma base de referência (ref_fasta). Define o caminho em dada2_params.")
+        errors.append("DADA2 requires a reference database (ref_fasta). Set the path in dada2_params.")
 
     return errors
 

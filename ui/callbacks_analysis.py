@@ -183,15 +183,15 @@ def register_callbacks(app: Any) -> None:
         occupancy = paths.get("occupancy_csv")
         if not occupancy or not Path(occupancy).exists():
             return html.Div(
-                f"Sem tabela de ocupação para {noun}s. Corre a análise com o método que gera {noun}s.",
+                f"No occupancy table for {noun}s. Run the analysis with the method that produces {noun}s.",
                 className="empty-state-sub",
             )
         try:
             frame = pd.read_csv(occupancy)
         except Exception as exc:
-            return html.Div(f"Tabela indisponível: {exc}", className="empty-state-sub")
+            return html.Div(f"Table unavailable: {exc}", className="empty-state-sub")
         if frame.empty:
-            return html.Div("Sem features.", className="empty-state-sub")
+            return html.Div("No features.", className="empty-state-sub")
 
         total = len(frame)
         shared = int(frame["is_shared"].sum()) if "is_shared" in frame.columns else 0
@@ -202,23 +202,23 @@ def register_callbacks(app: Any) -> None:
 
         headers = {
             "feature": noun,
-            "n_samples_present": "Nº amostras",
-            "samples_present": "Amostras",
+            "n_samples_present": "No. samples",
+            "samples_present": "Samples",
             "total_reads": "Reads",
-            "max_sample": "Amostra dominante",
-            "max_sample_reads": "Reads aí",
+            "max_sample": "Dominant sample",
+            "max_sample_reads": "Reads there",
         }
         display = frame[[c for c in headers if c in frame.columns]]
         if display.empty:
-            return html.Div("Nenhuma feature corresponde a este filtro.", className="empty-state-sub")
+            return html.Div("No feature matches this filter.", className="empty-state-sub")
 
         return html.Div(
             [
                 html.Div(
                     [
                         html.Div(f"{total} {noun}s no total", className="status-pill"),
-                        html.Div(f"{shared} em mais de uma amostra", className="status-pill"),
-                        html.Div(f"{total - shared} exclusivas de uma amostra", className="status-pill"),
+                        html.Div(f"{shared} in more than one sample", className="status-pill"),
+                        html.Div(f"{total - shared} unique to one sample", className="status-pill"),
                     ],
                     className="chip-list",
                 ),
@@ -625,7 +625,7 @@ def register_callbacks(app: Any) -> None:
                 "status": "blocked" if stage_status(preprocess_record) == "failure" else "pending",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR" if stage_status(preprocess_record) == "failure" else "INF", "msg": "Analysis aguardando preprocess concluído"}],
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR" if stage_status(preprocess_record) == "failure" else "INF", "msg": "Analysis waiting for preprocess to complete"}],
                 "blocked_by": "preprocess" if stage_status(preprocess_record) == "failure" else None,
             }
             return run_analysis(samples_data=samples_data, step_outputs={"preprocess": preprocess_record, "analysis": record}), record
@@ -696,7 +696,7 @@ def register_callbacks(app: Any) -> None:
             else:
                 success = False
                 outputs["combined_fasta_vsearch"] = ""
-                log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": "Nenhuma amostra produziu reads filtradas para VSEARCH."})
+                log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": "No sample produced filtered reads for VSEARCH."})
 
         if run_dada2_branch:
             analysis_samples = [build_sample_from_record(sample_record) for sample_record in (preprocess_record.get("next_samples") or [])]
@@ -717,13 +717,13 @@ def register_callbacks(app: Any) -> None:
         else:
             outputs["combined_fasta"] = ""
             success = False
-            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Analysis method inválido: {run_config.analysis_method}"})
+            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Invalid analysis method: {run_config.analysis_method}"})
 
         try:
             metrics_files = build_metrics_from_outputs(run_config.output_dir / "analysis", outputs)
         except Exception as exc:
             metrics_files = {}
-            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Falha ao construir métricas de análise: {exc}"})
+            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Failed to build analysis metrics: {exc}"})
 
         record = {
             "signature": signature,

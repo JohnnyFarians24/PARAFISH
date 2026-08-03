@@ -64,7 +64,7 @@ def render_sample_table(samples: list[dict] | None, selectable: bool = False, ru
 				html.Td(
 					_marker_badge(effective_marker, "marcador da run, resolvido a partir do preset de primers")
 					if effective_marker
-					else _marker_badge(sample.get("marker"), "inferido do nome do ficheiro")
+					else _marker_badge(sample.get("marker"), "inferred from the file name")
 				),
 				html.Td(html.Span(sample.get("status", "pending"), className=f"badge badge-{sample.get('status_color', 'purple')}")),
 			]

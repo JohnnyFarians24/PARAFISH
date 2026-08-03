@@ -1,5 +1,73 @@
 # DEVLOG
 
+## 2026-08-03 — PT→EN across the code: the (B) class I feared does not exist here, and the two real ones were atomic. Two golden-bound strings enter the existing re-freeze.
+
+The fear going in was the identifier-shaped string: `if status == "concluído"`, a pandas
+column named `fonte`, a dict keyed in Portuguese. Translating one of those breaks logic in
+SILENCE, and `golden.py check` would not catch it (it diffs frozen files, never re-runs).
+So the work started as a measurement, not an edit: every non-ASCII and Portuguese string
+literal classified as **(A) visible to a user** or **(B) consumed as an identifier**, with
+the (B) list reported before anything was touched.
+
+**Measured, and the answer moved the risk down.** The codebase had already separated key
+from label everywhere: **zero Portuguese dict keys**, **zero Portuguese CSV/TSV column
+headers** (checked header-by-header across every frozen golden file and every `*_COLUMNS`
+constant), and every status/enum value already English — `ok`, `no_hits`, `failed`,
+`skipped`, `not_applicable`, `success`, `partial`, `running`, `pending`. `STATUS_LABELS`
+and `STATUS_SUFFIX` are display maps keyed by those English values. Dropdown `label`s were
+Portuguese and their `value`s English, and every comparison is on the value. The `if status
+== "concluído"` shape does not occur once.
+
+**Exactly two real (B)s, both atomic**, and both translated for that reason rather than
+deferred by the general rule:
+
+- The **Downloads table** (`callbacks_results_summary`): four column ids (`artefacto`,
+  `ficheiro`, `tamanho`, `estado`), the cell value `"disponível"`, and a DataTable
+  `filter_query` comparing one against the other. Producer and consumer sit 20 lines apart
+  in one function with no persistence — and `.capitalize()` makes those ids the VISIBLE
+  headers, so leaving them was leaving Portuguese on the delivery page.
+- The `"Não classificado"` sentinel, assigned and compared three lines later, two
+  occurrences project-wide.
+
+**The two golden-bound strings, and why translating them costs almost nothing.** The
+`detail` column of `source_status.csv` is the only Portuguese in the entire golden (three
+datasets). Verified before touching it that **no code reads it** — `verify.py` reads only
+`source` and `status` ([verify.py](scripts/verify.py) check (e)), `_sintax_ran` decides on
+`status`, and the UI renders `detail` as text. So this is (A) prose living inside a frozen
+file, not a (B). Same for the `sintax_status` cell values (`no SINTAX assignment`, `SINTAX
+not run — see source_status.csv`), which post-date the freeze and enter at the re-baseline.
+Both are **added to the existing re-freeze obligation** rather than creating a new one: that
+golden has been known-stale since Task 4a and its re-freeze is already scheduled on the RAM
+machine, so this is one more line on a debt already being paid, not new debt. Recorded in
+[[parafish-golden-refreeze-obligation]] next to `taxonomy_hits`/`taxonomy_summary`.
+
+**Seven batches, suite + `golden.py check all` after each with `__pycache__` cleared.** The
+replacement tool refused to write a batch unless every literal matched exactly once (or an
+explicitly declared count) — it stopped two batches dead on an ambiguous string rather than
+half-applying them, which is the failure mode that would have made a red hard to attribute.
+Twenty-two test assertions moved from Portuguese to English text: every one of them a
+substring check on a message this work deliberately rewrote, none an assertion weakened. One
+message was re-worded rather than the assertion changed — `"0 OTUs"` had to stay contiguous,
+because that assertion is about the count, not the phrasing.
+
+**The anti-regression test found what seven greps had not.** `tests/test_ui_language.py`
+walks string CONSTANTS via the AST (so a Portuguese comment or docstring — which no user
+ever sees — does not fail the suite, and a Portuguese label cannot hide behind one) and
+matched 11 further strings my keyword greps had missed, including `'Nº amostras'` and
+`'Escolhe um stage...'`. It also produced two FALSE positives, both now documented in the
+test and deliberately excluded from the word list: `com` (matches every `github.com` URL)
+and `define` — an English imperative, as in "Define TRIMMOMATIC_JAR_PATH in the
+environment". A detector that cries wolf gets its assertion weakened by the next person.
+
+**Both new tests seen red for the right reason.** The language test against the stashed
+pre-translation tree: 30 097 characters of offenders. The wiring test does NOT assert
+English — it asserts the three ends agree — so it passed on the old Portuguese code, as it
+should. It was proven instead by mutation: rename the column id to `state` and leave the
+`filter_query` reading `{status}`, and it fails naming both sides. That half-rename is the
+real risk B1 carried, and it renders perfectly while greying out nothing — looks-alive,
+does-nothing, the shape this project keeps meeting. 581 pass, 2 skipped; golden green on all
+three datasets throughout.
+
 ## 2026-07-30 — PROVENANCE.txt: the measurement dissolved the old task and found the real one — the supervisor's ZIP shipped results without the recipe.
 
 The item was "docs promise a PROVENANCE.txt, no run emits it." Measured before building, and

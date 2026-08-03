@@ -102,11 +102,11 @@ def dada2_memory_shortfall(available: Optional[int] = None) -> Optional[str]:
     if available is None or available >= DADA2_BASELINE_MEMORY_BYTES:
         return None
     return (
-        f"DADA2 (ASVs) precisa de cerca de {_gb(DADA2_BASELINE_MEMORY_BYTES)} livres só para carregar "
-        f"as bibliotecas do R — e neste momento há {_gb(available)}. Não depende do tamanho das "
-        f"amostras: é o custo do próprio pacote. Fecha o que estiver a ocupar memória (o VS Code "
-        f"e as suas extensões costumam ser o maior consumidor) ou aumenta a RAM do WSL2. "
-        f"Os OTUs (VSEARCH) não são afetados e continuam a correr."
+        f"DADA2 (ASVs) needs about {_gb(DADA2_BASELINE_MEMORY_BYTES)} free just to load "
+        f"the R libraries — and right now there is {_gb(available)}. This does not depend on sample "
+        f"size: it is the cost of the package itself. Close whatever is using memory (VS Code "
+        f"and its extensions are usually the biggest consumer) or raise the WSL2 RAM. "
+        f"OTUs (VSEARCH) are unaffected and will still run."
     )
 
 
@@ -138,8 +138,8 @@ def preflight_notes(
     ruled_out = {str(source).lower() for source in inapplicable or ()} & sources
     for source in sorted(ruled_out):
         notes.append(
-            f"{source.upper()}: não indexa o marcador desta run — vai ser marcada como "
-            f"não aplicável e saltada, sem ser filtrada nem carregada."
+            f"{source.upper()}: does not index this run's marker — it will be marked "
+            f"not applicable and skipped, without being filtered or loaded."
         )
     sources -= ruled_out
 
@@ -159,22 +159,22 @@ def preflight_notes(
     remote = sorted({"BOLD", "NCBI"} & {s.upper() for s in sources})
     if remote:
         notes.append(
-            f"{' e '.join(remote)} consulta(m) servidores remotos, uma feature de cada vez — é a etapa "
-            f"mais demorada de longe (minutos a mais de uma hora, conforme o nº de OTUs/ASVs). A etapa "
-            f"Databases pode parecer «parada» quando está só à espera da rede. Para uma run rápida, "
-            f"desmarca estas fontes (não terás taxonomia, mas QC→Analysis acaba em segundos)."
+            f"{' and '.join(remote)} query remote servers, one feature at a time — by far the slowest "
+            f"stage (minutes to over an hour, depending on the number of OTUs/ASVs). The Databases "
+            f"stage can look «stuck» when it is only waiting on the network. For a quick run, "
+            f"deselect these sources (you get no taxonomy, but QC→Analysis finishes in seconds)."
         )
     if str(analysis_method).lower() == "both" and remote:
         notes.append(
-            "Método «both»: como geras OTUs e ASVs, as fontes remotas correm DUAS vezes (uma por "
-            "conjunto), o que duplica o tempo. Escolhe «vsearch» ou «dada2» se só precisas de um."
+            "Method «both»: since you generate both OTUs and ASVs, the remote sources run TWICE (once per "
+            "set), which doubles the time. Choose «vsearch» or «dada2» if you only need one."
         )
 
     if total and total < 4 * 1024 * 1024 * 1024:
         notes.append(
-            f"Memória total da máquina: {_gb(total)} (disponível agora: {_gb(available)}). "
-            f"É pouco para bases de referência grandes. Em WSL2, aumenta com um ficheiro "
-            f".wslconfig no Windows: [wsl2] / memory=8GB, e depois 'wsl --shutdown'."
+            f"Total machine memory: {_gb(total)} (available now: {_gb(available)}). "
+            f"That is little for large reference databases. On WSL2, raise it with a "
+            f".wslconfig file on Windows: [wsl2] / memory=8GB, then 'wsl --shutdown'."
         )
 
     for name, attr in (("SILVA", "silva"), ("PR2", "pr2")):
@@ -188,26 +188,26 @@ def preflight_notes(
             continue
         if marker_filter:
             notes.append(
-                f"{name}: a referência completa ocupa {_gb(Path(db_path).stat().st_size)} e não caberia "
-                f"nos {_gb(available)} disponíveis, por isso vai ser reduzida ao teu marcador "
-                f"({marker_filter}) antes de ser carregada — fica uma fração do tamanho e corre "
-                f"localmente. A primeira run com esta referência demora alguns minutos a preparar; "
-                f"as seguintes reutilizam a versão já filtrada."
+                f"{name}: the full reference takes {_gb(Path(db_path).stat().st_size)} and would not fit "
+                f"in the {_gb(available)} available, so it will be cut down to your marker "
+                f"({marker_filter}) before being loaded — it becomes a fraction of the size and runs "
+                f"locally. The first run with this reference takes a few minutes to prepare; "
+                f"later ones reuse the filtered version."
             )
         else:
             notes.append(
-                f"{name}: a referência ocupa {_gb(Path(db_path).stat().st_size)} e o VSEARCH SINTAX "
-                f"precisa de cerca de {_gb(needed)} de RAM, mas só há {_gb(available)} disponíveis. "
-                f"A fonte vai ser ignorada em vez de ser morta a meio pelo sistema (OOM). "
-                f"Soluções: aumentar a RAM, ou definir o marcador e os primers da run para que a "
-                f"referência seja recortada automaticamente."
+                f"{name}: the reference takes {_gb(Path(db_path).stat().st_size)} and VSEARCH SINTAX "
+                f"needs about {_gb(needed)} of RAM, but only {_gb(available)} is available. "
+                f"The source will be skipped rather than killed mid-run by the system (OOM). "
+                f"Fixes: raise the RAM, or set the run's marker and primers so the reference "
+                f"is trimmed automatically."
             )
 
     limit = max_samples_for_memory(available)
     if n_samples > limit:
         notes.append(
-            f"{n_samples} amostras nesta run, mas com {_gb(available)} disponíveis o limite seguro "
-            f"é cerca de {limit}. Divide a run em lotes mais pequenos ou aumenta a RAM."
+            f"{n_samples} samples in this run, but with {_gb(available)} available the safe limit "
+            f"is around {limit}. Split the run into smaller batches or raise the RAM."
         )
 
     return notes

@@ -314,7 +314,7 @@ def register_callbacks(app: Any) -> None:
                 "outputs": {},
                 "next_samples": [],
                 "log_lines": [
-                    {"ts": utc_now_iso(), "level": "ERR" if stage_status(qc_record) == "failure" else "INF", "msg": "Preprocess aguardando QC concluído"}
+                    {"ts": utc_now_iso(), "level": "ERR" if stage_status(qc_record) == "failure" else "INF", "msg": "Preprocess waiting for QC to complete"}
                 ],
                 "blocked_by": "qc" if stage_status(qc_record) == "failure" else None,
             }
@@ -377,7 +377,7 @@ def register_callbacks(app: Any) -> None:
             metrics_files = {key: str(path) for key, path in build_preprocess_metrics(run_config.output_dir / "preprocess").items()}
         except Exception as exc:
             metrics_files = {}
-            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Falha ao construir métricas de preprocess: {exc}"})
+            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Failed to build preprocess metrics: {exc}"})
 
         record = {
             "signature": signature,

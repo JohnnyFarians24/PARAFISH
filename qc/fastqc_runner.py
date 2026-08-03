@@ -77,7 +77,7 @@ def run_fastqc(sample: Sample, output_dir: Path, threads: int = 4) -> StepOutput
             success=False,
             files={},
             log=log_path,
-            error_message=f"FastQC nao encontrado: {exc}",
+            error_message=f"FastQC not found: {exc}",
         )
     except subprocess.CalledProcessError as exc:
         log_path.write_text((exc.stdout or "") + ("\n" if exc.stdout and exc.stderr else "") + (exc.stderr or ""), encoding="utf-8")
@@ -86,7 +86,7 @@ def run_fastqc(sample: Sample, output_dir: Path, threads: int = 4) -> StepOutput
             success=False,
             files={},
             log=log_path,
-            error_message=f"FastQC falhou: {str(exc.stderr or exc.stdout or exc)[:500]}",
+            error_message=f"FastQC failed: {str(exc.stderr or exc.stdout or exc)[:500]}",
         )
 
     files: dict[str, Path] = {}
@@ -113,7 +113,7 @@ def run_fastqc(sample: Sample, output_dir: Path, threads: int = 4) -> StepOutput
             success=False,
             files={},
             log=log_path,
-            error_message="FastQC terminou sem erro mas nao gerou relatórios esperados. Verifica o outdir e os nomes dos ficheiros de input.",
+            error_message="FastQC exited cleanly but produced none of the expected reports. Check the outdir and the input file names.",
         )
 
     return StepOutput(

@@ -127,11 +127,11 @@ def compute(run_config_data, project_data, samples_data, metric, prevalence, exc
     run_dir = _run_dir(run_config_data, project_data)
     matrix_path = _matrix_path(run_dir, feature_set) if run_dir else None
     if not matrix_path:
-        return None, {}, {}, "Sem tabela de abundância. Corre a etapa Analysis primeiro."
+        return None, {}, {}, "No abundance table. Run the Analysis stage first."
 
     features, samples, counts = load_matrix(matrix_path)
     if not features or not samples:
-        return None, {}, {}, "A tabela de abundância está vazia."
+        return None, {}, {}, "The abundance table is empty."
 
     if exclude_host:
         drop = _host_features(run_dir, feature_set)
@@ -235,15 +235,15 @@ def register(app: Any, prefix: str = "ord-analysis", *, compact: bool = False) -
                 ]
             )
         else:
-            biplot = html.Div("O biplot só está disponível para a PCA de Aitchison (as PCoA não têm cargas por feature).", className="empty-state-sub")
+            biplot = html.Div("The biplot is only available for Aitchison PCA (PCoA has no per-feature loadings).", className="empty-state-sub")
 
         scree = dcc.Graph(figure=scree_figure(result), config=_GRAPH_CONFIG)
 
         stats = permanova(result, groups) if groups else None
         if stats is None:
             perm = html.Div(
-                "A PERMANOVA precisa de pelo menos 2 grupos com 3 ou mais réplicas cada. "
-                "Define grupos na tabela de amostras para a activar.",
+                "PERMANOVA needs at least 2 groups with 3 or more replicates each. "
+                "Define groups in the sample table to enable it.",
                 className="empty-state-sub",
             )
         else:
@@ -252,8 +252,8 @@ def register(app: Any, prefix: str = "ord-analysis", *, compact: bool = False) -
             if floor and stats["p_value"] <= floor * 1.5:
                 # A permutation test cannot return a p below 1/(number of relabellings).
                 note = (
-                    f" Nota: com estes tamanhos de grupo o p mínimo possível é {floor:.2f}, "
-                    f"por isso este valor está no chão do teste e não deve ser lido como ausência de efeito."
+                    f" Note: with these group sizes the smallest attainable p is {floor:.2f}, "
+                    f"so this value is the floor of the test and must not be read as an absence of effect."
                 )
             perm = html.Div(
                 [
@@ -266,7 +266,7 @@ def register(app: Any, prefix: str = "ord-analysis", *, compact: bool = False) -
                         className="chip-list",
                     ),
                     html.Div(
-                        f"{stats['permutations']} permutações; grupos: "
+                        f"{stats['permutations']} permutations; groups: "
                         + ", ".join(f"{name} (n={n})" for name, n in stats["groups"].items())
                         + note,
                         className="mini-note",
@@ -333,6 +333,6 @@ def register(app: Any, prefix: str = "ord-analysis", *, compact: bool = False) -
     def _colour_options(samples_data):
         groups = _sample_groups(samples_data)
         if groups:
-            return [{"label": "Grupo de metadados", "value": "group"}, {"label": "Amostra", "value": "sample"}], "group"
+            return [{"label": "Metadata group", "value": "group"}, {"label": "Sample", "value": "sample"}], "group"
         # No metadata to colour by: say so instead of offering a dead dropdown.
-        return [{"label": "Amostra (sem grupos definidos)", "value": "sample"}], "sample"
+        return [{"label": "Sample (no groups defined)", "value": "sample"}], "sample"

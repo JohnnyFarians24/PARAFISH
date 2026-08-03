@@ -162,8 +162,8 @@ def resolve_run_marker(markers: Iterable, params=None) -> Tuple[str, str]:
         return from_samples, ""
     if from_samples and from_samples != from_preset:
         note = (
-            f"marcador do preset de primers ({from_preset}) difere do inferido dos nomes "
-            f"das amostras ({from_samples}); a run segue como {from_preset}"
+            f"the primer preset's marker ({from_preset}) differs from the one inferred from the "
+            f"sample names ({from_samples}); the run proceeds as {from_preset}"
         )
         return from_preset, note
     return from_preset, ""
@@ -211,8 +211,8 @@ class FilteredReference:
     def summary(self) -> str:
         """One sentence for the log and the per-source status panel."""
         return (
-            f"referência filtrada para {self.marker}: {self.size_bytes / 1e6:.0f} MB "
-            f"({self.records:,} sequências) de {self.source_size_bytes / 1e6:.0f} MB "
+            f"reference filtered to {self.marker}: {self.size_bytes / 1e6:.0f} MB "
+            f"({self.records:,} sequences) from {self.source_size_bytes / 1e6:.0f} MB "
             f"({self.source_records:,}) — {'; '.join(self.steps)}"
         ).replace(",", " ")
 
@@ -393,7 +393,7 @@ def build_marker_reference(
         if kept == source_records and not can_cut:
             return None
         if lineage and kept < source_records:
-            steps.append(f"{' + '.join(tag.split(':')[-1] for tag in lineage)} apenas ({kept:,} de {source_records:,})".replace(",", " "))
+            steps.append(f"{' + '.join(tag.split(':')[-1] for tag in lineage)} only ({kept:,} of {source_records:,})".replace(",", " "))
 
         records = kept
         if can_cut:
@@ -409,7 +409,7 @@ def build_marker_reference(
             else:
                 amplicon_path.unlink(missing_ok=True)
                 if cut is not None:
-                    steps.append("primers não correspondem a esta base — só filtro taxonómico")
+                    steps.append("primers do not match this database — taxonomic filter only")
         if not steps:
             return None
 

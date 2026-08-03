@@ -22,12 +22,12 @@ STATUS_COLORS = {
 }
 
 STATUS_LABELS = {
-    "success": "concluído",
-    "partial": "parcial",
-    "failure": "falhou",
-    "skipped": "não corrido",
-    "pending": "pendente",
-    "running": "a correr",
+    "success": "complete",
+    "partial": "partial",
+    "failure": "failed",
+    "skipped": "not run",
+    "pending": "pending",
+    "running": "running",
 }
 
 

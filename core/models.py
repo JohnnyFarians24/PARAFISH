@@ -44,22 +44,22 @@ class Marker(Enum):
 
 @dataclass
 class SamplePaths:
-	"""Caminhos dos ficheiros FASTQ de uma amostra."""
+	"""Paths to a sample's FASTQ files."""
 
 	r1: Path
 	r2: Optional[Path] = None
 
 	def validate(self, mode: AnalysisMode):
 		"""Validate that the requested layout exists on disk."""
-		assert self.r1.exists(), f"R1 não encontrado: {self.r1}"
+		assert self.r1.exists(), f"R1 not found: {self.r1}"
 		if mode == AnalysisMode.PE:
 			assert self.r2 is not None, "Modo PE requer R2"
-			assert self.r2.exists(), f"R2 não encontrado: {self.r2}"
+			assert self.r2.exists(), f"R2 not found: {self.r2}"
 
 
 @dataclass
 class Sample:
-	"""Representa uma amostra individual."""
+	"""A single sample."""
 
 	internal_id: str
 	display_label: str
@@ -78,7 +78,7 @@ class Sample:
 
 @dataclass
 class StepOutput:
-	"""Output padronizado de uma etapa do pipeline."""
+	"""The standard return shape of a pipeline step."""
 
 	step_name: str
 	success: bool
@@ -90,7 +90,7 @@ class StepOutput:
 
 @dataclass
 class RunConfig:
-	"""Configuração completa de um run."""
+	"""The complete configuration of a run."""
 
 	run_id: str
 	samples: List[Sample]

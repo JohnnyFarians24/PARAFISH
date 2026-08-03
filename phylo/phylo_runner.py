@@ -59,7 +59,7 @@ def run_phylo(aligned_input_fasta: Path, config: RunConfig, output_dir: Path) ->
             step_name="phylo",
             success=False,
             files={},
-            error_message=f"Alinhamento de entrada não encontrado: {aligned_input}.",
+            error_message=f"Input alignment not found: {aligned_input}.",
         )
 
     # VSEARCH clusters are OTUs; DADA2 variants are ASVs. Labelling clusters "ASV"
@@ -81,7 +81,7 @@ def run_phylo(aligned_input_fasta: Path, config: RunConfig, output_dir: Path) ->
     if config.phylo_mode == PhyloMode.ROBUST:
         return _with_alignment_files(_finalize_phylo_output(run_raxml(aligned, output_dir / "raxml", config.phylo_params)), mafft_out)
 
-    # PhyloMode.AUTO: FastTree primeiro, depois RAxML com a árvore como seed
+    # PhyloMode.AUTO: FastTree first, then RAxML seeded with that tree
     fasttree_out = run_fasttree(aligned, output_dir / "fasttree", config.phylo_params)
     if not fasttree_out.success:
         return fasttree_out
@@ -93,7 +93,7 @@ def run_phylo(aligned_input_fasta: Path, config: RunConfig, output_dir: Path) ->
             step_name="phylo",
             success=False,
             files={"log": fasttree_out.files.get("log") or output_dir / "fasttree" / "fasttree.log"},
-            error_message="FastTree não devolveu tree_nwk para usar como seed do RAxML-NG.",
+            error_message="FastTree returned no tree_nwk to seed RAxML-NG with.",
         )
     if not tree_seed.exists():
         return StepOutput(

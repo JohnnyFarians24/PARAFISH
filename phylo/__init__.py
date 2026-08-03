@@ -21,5 +21,5 @@ def phylo_input_error(seq_count: int) -> Optional[str]:
     floor, instead of blowing up downstream at the aligner.
     """
     if seq_count < MIN_TREE_SEQUENCES:
-        return f"FASTA tem {seq_count} sequências; mínimo {MIN_TREE_SEQUENCES} para phylo"
+        return f"FASTA has {seq_count} sequences; phylo needs at least {MIN_TREE_SEQUENCES}"
     return None

@@ -206,16 +206,16 @@ class PreflightMarkerNoteTests(unittest.TestCase):
     def test_oversized_reference_warns_when_no_filter_applies(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             notes = " ".join(self._notes(temp_dir, ""))
-            self.assertIn("ignorada", notes)
+            self.assertIn("will be skipped", notes)
 
     def test_no_skip_warning_once_the_reference_will_be_filtered(self):
         # The full size is real but no longer the size that gets loaded; warning about
         # it would send the user to fix a problem that no longer exists.
         with tempfile.TemporaryDirectory() as temp_dir:
             notes = " ".join(self._notes(temp_dir, "18S"))
-            self.assertNotIn("ignorada", notes)
+            self.assertNotIn("will be skipped", notes)
             self.assertIn("18S", notes)
-            self.assertIn("reduzida", notes)
+            self.assertIn("cut down", notes)
 
 
 if __name__ == "__main__":

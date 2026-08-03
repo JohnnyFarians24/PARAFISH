@@ -52,7 +52,7 @@ def connection_banner():
                     # One banner + a disclosure beats ten identical red cards.
                     html.Details(
                         [
-                            html.Summary("Ver ocorrências", className="details-summary", style={"padding": "6px 0"}),
+                            html.Summary("See occurrences", className="details-summary", style={"padding": "6px 0"}),
                             html.Div(id=DETAIL_ID, className="mini-note", style={"fontFamily": "monospace"}),
                         ],
                         className="details-panel",
@@ -104,13 +104,13 @@ def register_clientside(app) -> None:
             if (n < 2) { return [hidden, '', '']; }
 
             // ONE line, with a count — not one card per failed callback.
-            const msg = 'Servidor nao respondeu \\u00b7 \\u00d7' + n + ' \\u00b7 ' + (state.last || '');
-            const detail = 'Primeira ocorrencia: ' + (state.first || '?')
-                + '\\nUltima: ' + (state.last || '?')
-                + '\\nTentativas falhadas: ' + n
-                + '\\n\\nMensagem (identica em todas): "the server did not respond".'
-                + '\\nCausa provavel nesta maquina: o processo foi terminado por falta de'
-                + ' memoria (OOM). Ve o painel de recursos no Setup.';
+            const msg = 'Server did not respond \\u00b7 \\u00d7' + n + ' \\u00b7 ' + (state.last || '');
+            const detail = 'First occurrence: ' + (state.first || '?')
+                + '\\nLast: ' + (state.last || '?')
+                + '\\nFailed attempts: ' + n
+                + '\\n\\nMessage (identical every time): "the server did not respond".'
+                + '\\nLikely cause on this machine: the process was killed for lack of'
+                + ' memory (OOM). See the resources panel on Setup.';
             return [visible, msg, detail];
         }
         """

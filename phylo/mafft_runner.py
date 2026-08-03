@@ -26,7 +26,7 @@ def run_mafft(fasta_path: Path, output_dir: Path, params: Dict) -> StepOutput:
             step_name="mafft",
             success=False,
             files={},
-            error_message="Cabeçalhos inválidos após sanitização.",
+            error_message="Invalid headers after sanitisation.",
         )
 
     aligned_fasta = output_dir / "aligned.fasta"
@@ -65,14 +65,14 @@ def run_mafft(fasta_path: Path, output_dir: Path, params: Dict) -> StepOutput:
             completed = _attempt(fallback)
             aligned_fasta.write_text(completed.stdout or "", encoding="utf-8")
             log_path.write_text(
-                "MAFFT --auto falhou (provavelmente falta de memoria); usada a estrategia "
+                "MAFFT --auto failed (most likely out of memory); fell back to the "
                 "economica --retree 1 --nofft.\n\n" + (completed.stderr or "") + "\n" + (completed.stdout or ""),
                 encoding="utf-8",
             )
         except subprocess.CalledProcessError as fallback_exc:
             log_path.write_text(
-                f"MAFFT falhou em ambas as estrategias.\nPrimaria: {primary_exc}\nEconomica: {fallback_exc}\n"
-                "Causa provavel: falta de memoria (RAM) para o numero de sequencias.",
+                f"MAFFT failed with both strategies.\nPrimary: {primary_exc}\nMemory-saving: {fallback_exc}\n"
+                "Likely cause: not enough memory (RAM) for this number of sequences.",
                 encoding="utf-8",
             )
             return StepOutput(
@@ -80,7 +80,7 @@ def run_mafft(fasta_path: Path, output_dir: Path, params: Dict) -> StepOutput:
                 success=False,
                 files={},
                 log=log_path,
-                error_message="MAFFT falhou (provavelmente falta de memoria). Ver phylo/mafft/mafft.log.",
+                error_message="MAFFT failed (most likely out of memory). See phylo/mafft/mafft.log.",
             )
 
     # write mapping of ASV -> original header

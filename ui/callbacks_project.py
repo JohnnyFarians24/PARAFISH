@@ -142,17 +142,17 @@ def _active_project_banner(project_store, samples_data):
 	if not name:
 		return html.Div(
 			[
-				html.Span("⚠ Nenhum projeto ativo", className="badge badge-amber"),
-				html.A("Criar ou selecionar projeto →", href="/project", style={"color": "var(--blue)", "marginLeft": "10px"}),
+				html.Span("⚠ No active project", className="badge badge-amber"),
+				html.A("Create or select a project →", href="/project", style={"color": "var(--blue)", "marginLeft": "10px"}),
 			],
 			className="control-row",
 			style={"marginBottom": "12px", "alignItems": "center"},
 		)
 	return html.Div(
 		[
-			html.Span("Projeto ativo", className="logo-subtext"),
+			html.Span("Active project", className="logo-subtext"),
 			html.Span(str(name), className="badge badge-green"),
-			html.Span(f"{_selected_sample_count(samples_data)} amostra(s)", className="status-pill"),
+			html.Span(f"{_selected_sample_count(samples_data)} sample(s)", className="status-pill"),
 		],
 		className="control-row",
 		style={"marginBottom": "12px", "alignItems": "center", "gap": "10px"},
@@ -164,14 +164,14 @@ def _run_target_note(project_store, samples_data):
 	active = resolve_project_data(project_store)
 	name = active.get("project_name") or active.get("name")
 	if not name:
-		return html.Div(html.Span("Sem projeto ativo — cria um antes de correr.", className="badge badge-amber"), className="mini-note")
+		return html.Div(html.Span("No active project — create one before running.", className="badge badge-amber"), className="mini-note")
 	count = _selected_sample_count(samples_data)
 	if count == 0:
 		return html.Div(
-			[html.Span("Vais correr o projeto "), html.B(str(name)), html.Span(" — "), html.Span("sem amostras selecionadas", className="badge badge-amber")],
+			[html.Span("You are about to run project "), html.B(str(name)), html.Span(" — "), html.Span("no samples selected", className="badge badge-amber")],
 			className="mini-note",
 		)
-	return html.Div([html.Span("Vais correr o projeto "), html.B(str(name)), html.Span(f" · {count} amostra(s)")], className="mini-note")
+	return html.Div([html.Span("You are about to run project "), html.B(str(name)), html.Span(f" · {count} sample(s)")], className="mini-note")
 
 
 def register_callbacks(app: Any) -> None:
@@ -264,8 +264,8 @@ def register_callbacks(app: Any) -> None:
 		if not project:
 			return html.Div(
 				[
-					html.Div("Nenhum projeto ativo.", className="empty-state-sub"),
-					html.Div("Cria um projeto acima, ou carrega um dos recentes.", className="mini-note"),
+					html.Div("No active project.", className="empty-state-sub"),
+					html.Div("Create a project above, or load one of the recent ones.", className="mini-note"),
 				]
 			)
 
@@ -277,16 +277,16 @@ def register_callbacks(app: Any) -> None:
 		if not samples:
 			next_step = html.Div(
 				[
-					html.Span("Próximo passo: "),
-					html.A("adicionar amostras →", href="/samples", style={"color": "var(--blue)"}),
+					html.Span("Next step: "),
+					html.A("add samples →", href="/samples", style={"color": "var(--blue)"}),
 				],
 				className="mini-note",
 			)
 		else:
 			next_step = html.Div(
 				[
-					html.Span("Próximo passo: "),
-					html.A("configurar e correr →", href="/setup", style={"color": "var(--blue)"}),
+					html.Span("Next step: "),
+					html.A("set up and run →", href="/setup", style={"color": "var(--blue)"}),
 				],
 				className="mini-note",
 			)
@@ -296,13 +296,13 @@ def register_callbacks(app: Any) -> None:
 				html.Div(
 					[
 						html.Div(project.get("project_name") or project.get("name") or active_id, style={"fontWeight": "600"}),
-						status_badge("success" if samples else "pending", label="pronto" if samples else "sem amostras"),
+						status_badge("success" if samples else "pending", label="ready" if samples else "no samples"),
 					],
 					style={"display": "flex", "alignItems": "center", "gap": "10px"},
 				),
 				html.Div(
 					[
-						html.Div(f"{len(samples)} amostra(s) selecionada(s)", className="status-pill"),
+						html.Div(f"{len(samples)} sample(s) selected", className="status-pill"),
 						html.Div(f"Modo: {project.get('mode', 'Complete')}", className="status-pill"),
 						*([html.Div(f"Run: {run_id}", className="status-pill")] if run_id else []),
 					],
@@ -461,10 +461,10 @@ def register_callbacks(app: Any) -> None:
 			if record_belongs_to(store, run_id):
 				return ""
 			status = str(stages.get(stage) or "pending")
-			detail = "a correr agora" if status == "running" else "ainda não começou"
+			detail = "running now" if status == "running" else "has not started yet"
 			return html.Div(
-				f"Esta etapa ainda não correu nesta run ({detail}). "
-				f"Os resultados aparecem quando a run terminar.",
+				f"This stage has not run in this run yet ({detail}). "
+				f"Results appear once the run finishes.",
 				className="badge badge-amber",
 				style={"marginBottom": "8px"},
 			)

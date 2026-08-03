@@ -29,17 +29,17 @@ _CONSENSUS_HEADERS = {
     "feature_id": "ID",
     "ASV_ID": "ID",
     "feature_type": "Tipo",
-    "Best_Identity": "% identidade",
-    "Best_Coverage": "% cobertura",
-    "Best_Source": "Fonte",
-    "Reliability": "Fiabilidade",
-    "Consensus_Kingdom": "Reino",
-    "Consensus_Phylum": "Filo",
-    "Consensus_Class": "Classe",
-    "Consensus_Order": "Ordem",
-    "Consensus_Family": "Família",
-    "Consensus_Genus": "Género",
-    "Consensus_Species": "Espécie",
+    "Best_Identity": "% identity",
+    "Best_Coverage": "% coverage",
+    "Best_Source": "Source",
+    "Reliability": "Reliability",
+    "Consensus_Kingdom": "Kingdom",
+    "Consensus_Phylum": "Phylum",
+    "Consensus_Class": "Class",
+    "Consensus_Order": "Order",
+    "Consensus_Family": "Family",
+    "Consensus_Genus": "Genus",
+    "Consensus_Species": "Species",
 }
 
 
@@ -154,14 +154,14 @@ def _source_status_panel(status_csv: str):
     if not rows:
         return None
     palette = {
-        "ok": ("#3fb950", "rgba(63,185,80,0.12)", "✓ classificou"),
-        "no_hits": ("#d29922", "rgba(210,153,34,0.12)", "sem atribuições"),
+        "ok": ("#3fb950", "rgba(63,185,80,0.12)", "✓ classified"),
+        "no_hits": ("#d29922", "rgba(210,153,34,0.12)", "no assignments"),
         # Neutral, not amber: a source that does not index this marker has not
         # under-performed, and colouring it like "found nothing" invites the reader to
         # conclude the taxa are absent from a database that was never asked.
-        "not_applicable": ("#8b98aa", "rgba(139,152,170,0.12)", "marcador incompatível"),
-        "skipped": ("#8b98aa", "rgba(139,152,170,0.12)", "ignorada"),
-        "failed": ("#f85149", "rgba(248,81,73,0.12)", "falhou"),
+        "not_applicable": ("#8b98aa", "rgba(139,152,170,0.12)", "incompatible marker"),
+        "skipped": ("#8b98aa", "rgba(139,152,170,0.12)", "skipped"),
+        "failed": ("#f85149", "rgba(248,81,73,0.12)", "failed"),
     }
     pills = []
     for row in rows:
@@ -328,9 +328,9 @@ def register_callbacks(app: Any) -> None:
         keys = [entry["key"] for entry in sets]
         value = current if current in keys else (keys[0] if keys else "otu")
         if len(keys) > 1:
-            note = "Este run gerou os dois conjuntos. Alterna aqui; para os comparar, vê o painel «OTU vs ASV»."
+            note = "This run produced both sets. Switch between them here; to compare them, see the «OTU vs ASV» panel."
         elif keys:
-            note = f"Este run gerou apenas {sets[0]['label']}. Escolhe o método «both» no Setup para gerar ambos."
+            note = f"This run produced only {sets[0]['label']}. Choose the «both» method on Setup to generate both."
         else:
             note = ""
         return options, value, note
@@ -353,19 +353,19 @@ def register_callbacks(app: Any) -> None:
 
         frame, error = _load_hits_frame(outputs, run_output_dir, feature_set, min_identity or 0, min_coverage or 0, top_n or 0)
         if error:
-            return html.Div(f"Tabela de hits indisponível: {error}", className="empty-state-sub")
+            return html.Div(f"Hits table unavailable: {error}", className="empty-state-sub")
         if frame is None:
             return html.Div(
-                "Ainda não há hits. Corre a etapa Databases com pelo menos uma fonte que alinhe "
-                "(NCBI, BOLD ou base customizada) — o SINTAX não produz % identidade.",
+                "No hits yet. Run the Databases stage with at least one source that aligns "
+                "(NCBI, BOLD or a custom database) — SINTAX does not produce a % identity.",
                 className="empty-state-sub",
             )
         if frame.empty:
-            return html.Div("Nenhum hit passa os filtros escolhidos.", className="empty-state-sub")
+            return html.Div("No hit passes the chosen filters.", className="empty-state-sub")
 
         _id_col = "feature_id" if "feature_id" in frame.columns else "ASV_ID"
         n_features = frame[_id_col].nunique() if _id_col in frame.columns else 0
-        headers = {**_CONSENSUS_HEADERS, "hit_rank": "Hit #", "identity": "% identidade", "coverage": "% cobertura", "reliability": "Fiabilidade", "source": "Fonte", "taxon": "Taxon", "subject": "Referência"}
+        headers = {**_CONSENSUS_HEADERS, "hit_rank": "Hit #", "identity": "% identity", "coverage": "% coverage", "reliability": "Reliability", "source": "Source", "taxon": "Taxon", "subject": "Reference"}
         return html.Div(
             [
                 html.Div(
@@ -439,31 +439,31 @@ def register_callbacks(app: Any) -> None:
         path = taxonomy_file(outputs, run_output_dir, feature_set, "taxonomy_summary_csv")
         if not path:
             return html.Div(
-                "Ainda não há resumo por feature. Corre a etapa Databases com pelo menos uma "
-                "base de referência.",
+                "No per-feature summary yet. Run the Databases stage with at least one "
+                "reference database.",
                 className="empty-state-sub",
             )
         try:
             frame = pd.read_csv(path, dtype=str, keep_default_na=False)
         except Exception as exc:
-            return html.Div(f"Resumo indisponível: {exc}", className="empty-state-sub")
+            return html.Div(f"Summary unavailable: {exc}", className="empty-state-sub")
         if frame.empty:
-            return html.Div("Nenhuma feature classificada.", className="empty-state-sub")
+            return html.Div("No feature classified.", className="empty-state-sub")
 
         headers = {
             "feature_id": "ID",
             "ASV_ID": "ID",
-            "feature_type": "Tipo",
-            "consensus_taxon": "Consenso (LCA)",
-            "consensus_rank": "Nível",
-            "consensus_reliability": "Fiabilidade",
-            "align_source": "Alinhamento — fonte",
-            "align_taxon": "Alinhamento — taxon",
-            "align_identity": "Alinhamento — % identidade",
-            "sintax_source": "SINTAX — fonte",
+            "feature_type": "Type",
+            "consensus_taxon": "Consensus (LCA)",
+            "consensus_rank": "Rank",
+            "consensus_reliability": "Reliability",
+            "align_source": "Alignment — source",
+            "align_taxon": "Alignment — taxon",
+            "align_identity": "Alignment — % identity",
+            "sintax_source": "SINTAX — source",
             "sintax_taxon": "SINTAX — taxon",
-            "sintax_confidence": "SINTAX — confiança",
-            "sintax_status": "SINTAX — estado",
+            "sintax_confidence": "SINTAX — confidence",
+            "sintax_status": "SINTAX — status",
         }
 
         children = [
@@ -490,9 +490,9 @@ def register_callbacks(app: Any) -> None:
         if sintax_absent:
             children.append(
                 html.Div(
-                    "As colunas SINTAX estão vazias porque nenhuma fonte SINTAX (SILVA/PR2) "
-                    "contribuiu neste run — não porque nada foi encontrado. O estado de cada "
-                    "fonte está abaixo (source_status.csv).",
+                    "The SINTAX columns are empty because no SINTAX source (SILVA/PR2) "
+                    "contributed to this run — not because nothing was found. The status of each "
+                    "source is below (source_status.csv).",
                     className="empty-state-sub",
                 )
             )
@@ -552,7 +552,7 @@ def register_callbacks(app: Any) -> None:
 
         if not summary_path or not Path(summary_path).exists():
             return html.Div(
-                "Disponível quando o run gera os dois conjuntos. Escolhe o método de análise "
+                "Available when the run produces both sets. Choose the analysis method "
                 "«both» (VSEARCH + DADA2) no Setup.",
                 className="empty-state-sub",
             )
@@ -561,19 +561,19 @@ def register_callbacks(app: Any) -> None:
         try:
             summary = pd.read_csv(summary_path)
         except Exception as exc:
-            return html.Div(f"Comparação indisponível: {exc}", className="empty-state-sub")
+            return html.Div(f"Comparison unavailable: {exc}", className="empty-state-sub")
 
         headers = {
-            "feature_set": "Conjunto",
-            "label": "Método",
-            "n_features": "Nº features",
-            "n_samples": "Nº amostras",
+            "feature_set": "Set",
+            "label": "Method",
+            "n_features": "No. features",
+            "n_samples": "No. samples",
             "total_reads": "Reads",
-            "features_in_multiple_samples": "Em várias amostras",
-            "features_in_one_sample": "Só numa amostra",
+            "features_in_multiple_samples": "In several samples",
+            "features_in_one_sample": "In one sample only",
             "mean_reads_per_feature": "Reads/feature",
         }
-        children.append(html.Div("Resumo — uma linha por conjunto, nunca uma linha com os dois", className="mini-note"))
+        children.append(html.Div("Summary — one row per set, never one row holding both", className="mini-note"))
         children.append(
             data_table(
                 data=summary.to_dict("records"),
@@ -592,19 +592,19 @@ def register_callbacks(app: Any) -> None:
                 asv_only = int((taxa["agreement"] == "asv_only").sum()) if "agreement" in taxa.columns else 0
                 taxa_headers = {
                     "taxon": "Taxon",
-                    "rank": "Nível",
+                    "rank": "Rank",
                     "n_otus": "Nº OTUs",
                     "n_asvs": "Nº ASVs",
                     "otu_reads": "Reads (OTU)",
                     "asv_reads": "Reads (ASV)",
-                    "agreement": "Concordância",
+                    "agreement": "Agreement",
                 }
                 children.append(
                     html.Div(
                         [
                             html.Div(f"{both} taxa detetados pelos dois", className="status-pill"),
-                            html.Div(f"{otu_only} só por OTUs", className="status-pill"),
-                            html.Div(f"{asv_only} só por ASVs", className="status-pill"),
+                            html.Div(f"{otu_only} by OTUs only", className="status-pill"),
+                            html.Div(f"{asv_only} by ASVs only", className="status-pill"),
                         ],
                         className="chip-list",
                         style={"marginTop": "12px"},
@@ -612,8 +612,8 @@ def register_callbacks(app: Any) -> None:
                 )
                 children.append(
                     html.Div(
-                        "Ponte por taxon: cada lado mantém a sua própria contagem de features e de reads, "
-                        "em colunas separadas. Nunca são somadas.",
+                        "Taxon bridge: each side keeps its own feature and read counts, "
+                        "in separate columns. They are never summed.",
                         className="mini-note",
                     )
                 )
@@ -942,8 +942,8 @@ def register_callbacks(app: Any) -> None:
         if not consensus_path:
             children.append(
                 html.Div(
-                    f"Ainda não há consenso de taxonomia para {noun}s. Ativa pelo menos uma base de "
-                    f"referência e corre a etapa Databases (e o método de análise que gera {noun}s).",
+                    f"No taxonomy consensus for {noun}s yet. Enable at least one reference "
+                    f"database and run the Databases stage (and the analysis method that produces {noun}s).",
                     className="empty-state-sub",
                 )
             )
@@ -958,7 +958,7 @@ def register_callbacks(app: Any) -> None:
                     classified = int(frame["Consensus_Genus"].astype(str).str.strip().replace("nan", "").astype(bool).sum())
                 pills = [
                     html.Div(f"{len(frame)} {noun}s", className="status-pill"),
-                    html.Div(f"{classified} classificados até género", className="status-pill"),
+                    html.Div(f"{classified} classified to genus", className="status-pill"),
                 ]
                 if "Reliability" in frame.columns:
                     high = int((frame["Reliability"].astype(str) == "high").sum())
@@ -1008,9 +1008,9 @@ def register_callbacks(app: Any) -> None:
                 tabs.append(dcc.Tab(label=label, children=html.Div(body, style={"paddingTop": "10px"})))
             children.append(
                 details(
-                    "Resultados por fonte (dados em bruto)",
+                    "Per-source results (raw data)",
                     dcc.Tabs(tabs),
-                    subtitle="saída directa de cada base — para auditoria",
+                    subtitle="raw output from each database — for auditing",
                 )
             )
 
@@ -1209,21 +1209,21 @@ def register_callbacks(app: Any) -> None:
         valid, error = config.validate()
         if not valid:
             dest.unlink(missing_ok=True)
-            return html.Div(f"Ficheiro inválido: {error}", style={"color": "red"}), no_update
+            return html.Div(f"Invalid file: {error}", style={"color": "red"}), no_update
         raw = dict(run_config_data or {})
         params = raw.setdefault("vsearch_params", {})
         params["custom_db_path"] = str(dest)
         params["custom_db_kind"] = config.kind
         if config.kind == "blast":
-            mode_note = "comparação por BLAST (blastn) contra os OTUs/ASVs"
+            mode_note = "BLAST (blastn) comparison against the OTUs/ASVs"
         else:
-            mode_note = "classificação SINTAX (cabeçalhos com ;tax=) integrada no consenso"
+            mode_note = "SINTAX classification (headers with ;tax=) folded into the consensus"
         return (
             html.Div(
                 [
                     html.Div(f"✓ Carregada: {filename}", style={"color": "#3fb950", "fontWeight": "600"}),
                     html.Div(f"Modo detetado: {mode_note}.", className="mini-note"),
-                    html.Div("Corre a etapa Databases para comparar as amostras contra esta base.", className="mini-note"),
+                    html.Div("Run the Databases stage to compare the samples against this database.", className="mini-note"),
                 ]
             ),
             raw,
@@ -1257,7 +1257,7 @@ def register_callbacks(app: Any) -> None:
                 "status": "blocked" if stage_status(analysis_record) == "failure" else "pending",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR" if stage_status(analysis_record) == "failure" else "INF", "msg": "Taxonomy aguardando análise concluída"}],
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR" if stage_status(analysis_record) == "failure" else "INF", "msg": "Taxonomy waiting for the analysis to complete"}],
                 "blocked_by": "analysis" if stage_status(analysis_record) == "failure" else None,
             }
             return run_db_classification(project_data=project_data, samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": record}), record
@@ -1269,8 +1269,8 @@ def register_callbacks(app: Any) -> None:
                 "status": "failure",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": "Análise não produziu FASTA combinado"}],
-                "error_message": "Análise não produziu FASTA combinado",
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": "The analysis produced no combined FASTA"}],
+                "error_message": "The analysis produced no combined FASTA",
             }
             return run_db_classification(project_data=project_data, samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": record}), record
 
@@ -1281,8 +1281,8 @@ def register_callbacks(app: Any) -> None:
                 "status": "failure",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"FASTA combinado nao encontrado: {fasta_path}"}],
-                "error_message": f"FASTA combinado nao encontrado: {fasta_path}",
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"Combined FASTA not found: {fasta_path}"}],
+                "error_message": f"Combined FASTA not found: {fasta_path}",
             }
             return run_db_classification(project_data=project_data, samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": record}), record
         db_paths = get_db_paths()
@@ -1328,7 +1328,7 @@ def register_callbacks(app: Any) -> None:
         run_marker, marker_note = resolve_run_marker(
             (sample.marker for sample in run_config.samples), run_config.vsearch_params
         )
-        log_lines.append({"ts": utc_now_iso(), "level": "INFO", "msg": f"Marcador da run: {run_marker or 'não identificado'}"})
+        log_lines.append({"ts": utc_now_iso(), "level": "INFO", "msg": f"Run marker: {run_marker or 'not identified'}"})
         if marker_note:
             log_lines.append({"ts": utc_now_iso(), "level": "WARN", "msg": marker_note})
         taxonomy_result = run_taxonomy_pipeline(
@@ -1365,7 +1365,7 @@ def register_callbacks(app: Any) -> None:
             }
         except Exception as exc:
             metrics_files = {}
-            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Falha ao construir métricas de taxonomia: {exc}"})
+            log_lines.append({"ts": utc_now_iso(), "level": "ERR", "msg": f"Failed to build taxonomy metrics: {exc}"})
 
         record = {
             "signature": signature,

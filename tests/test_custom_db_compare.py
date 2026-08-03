@@ -212,31 +212,31 @@ class SequenceValidationTests(unittest.TestCase):
         kind, error = self._kind(">p1 some protein\nMKWVTFISLLLLFSSAYSRGV\n")
 
         self.assertEqual(kind, "")
-        self.assertIn("nucleótidos", error)
+        self.assertIn("non-nucleotide", error)
 
     def test_empty_sequence_body_is_rejected(self):
         kind, error = self._kind(f">s1\n\n>s2\n{self.OK}\n")
 
         self.assertEqual(kind, "")
-        self.assertIn("não tem bases", error)
+        self.assertIn("has no bases", error)
 
     def test_headers_with_no_sequence_at_all_are_rejected(self):
         kind, error = self._kind(">s1\n>s2\n")
 
         self.assertEqual(kind, "")
-        self.assertIn("não tem bases", error)
+        self.assertIn("has no bases", error)
 
     def test_junk_characters_are_rejected(self):
         kind, error = self._kind(">s1\n!!!???###\n")
 
         self.assertEqual(kind, "")
-        self.assertIn("nucleótidos", error)
+        self.assertIn("non-nucleotide", error)
 
     def test_a_sequence_below_the_floor_is_rejected(self):
         kind, error = self._kind(">s1\nACGTACGT\n")
 
         self.assertEqual(kind, "")
-        self.assertIn("mínimo", error)
+        self.assertIn("minimum", error)
 
     def test_the_length_floor_value_itself_is_pinned(self):
         """Written separately from the boundary test below, and deliberately literal.
