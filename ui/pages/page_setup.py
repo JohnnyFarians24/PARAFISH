@@ -6,6 +6,14 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from core.config import MIN_UNIQUE_SIZE
+from core.models import AnalysisBranch, RunConfig
+
+# RunConfig is the single source of every default a Setup control stands for. A literal
+# typed into a control is a second source, and it is the one that reaches a UI run: the
+# sliding window (4:15), the RAxML bootstraps (100) and the BOLD mode (1) each disagreed
+# with RunConfig (4:20, 10, 2), so a UI run and a headless run used different parameters.
+_RUN_DEFAULTS = RunConfig(run_id="", samples=[], branch=AnalysisBranch.VSEARCH)
+_DEFAULT_SLIDINGWINDOW = f"{_RUN_DEFAULTS.trimmomatic_params['window_size']}:{_RUN_DEFAULTS.trimmomatic_params['window_quality']}"
 
 
 def _param_label(text: str, tooltip: str):
@@ -108,8 +116,8 @@ def _preprocess_card():
                             dcc.Input(id="setup-trim-leading", type="number", value=3, min=0, max=30, className="dash-input"),
                             _param_label("TRAILING", "Removes low-quality bases from the 3' end. Higher = more aggressive. Default: 3."),
                             dcc.Input(id="setup-trim-trailing", type="number", value=3, min=0, max=30, className="dash-input"),
-                            _param_label("SLIDINGWINDOW", "Window:quality — scans a window of N bases and cuts when average quality drops below threshold. Default: 4:15."),
-                            dcc.Input(id="setup-trim-slidingwindow", type="text", value="4:15", className="dash-input"),
+                            _param_label("SLIDINGWINDOW", f"Window:quality — scans a window of N bases and cuts when average quality drops below threshold. Default: {_DEFAULT_SLIDINGWINDOW}."),
+                            dcc.Input(id="setup-trim-slidingwindow", type="text", value=_DEFAULT_SLIDINGWINDOW, className="dash-input"),
                             _param_label("MINLEN", "Minimum read length after trimming. Reads shorter than this are discarded. Default: 50."),
                             dcc.Input(id="setup-trim-minlen", type="number", value=50, min=20, max=500, className="dash-input"),
                             html.Hr(),
@@ -210,6 +218,7 @@ def _analysis_card():
                                     {"label": "18S V4 — TAReuk454FWD1 / TAReukREV3", "value": "18S_V4_TAReuk"},
                                     {"label": "COI — Folmer (LCO1490 / HCO2198)", "value": "COI_Folmer"},
                                     {"label": "COI — Leray (mlCOIintF / jgHCO2198)", "value": "COI_Leray"},
+                                    {"label": "COI — mlCOIintF / LoboR1 (lab)", "value": "COI_Leray_LoboR1"},
                                 ],
                                 # "auto", not "": the old default was the same value as
                                 # "do not strip primers", so an untouched control meant
@@ -360,7 +369,7 @@ def _databases_card():
                                             {"label": "2 — Genus and Species Search", "value": 2},
                                             {"label": "3 — Exhaustive Search", "value": 3},
                                         ],
-                                        value=1,
+                                        value=_RUN_DEFAULTS.bold_params["mode"],
                                         clearable=False,
                                     ),
                                     html.Label("Consensus method"),
@@ -432,7 +441,7 @@ def _phylo_card():
                             labelStyle={"display": "inline-block", "marginRight": "10px"},
                         ),
                         _param_label("RAxML Bootstraps", "Number of bootstrap replicates used to assess branch support. Higher values improve precision but increase runtime. Recommended: 10-50 for testing, 100-500 for final analyses."),
-                        dcc.Input(id="setup-raxml-bootstraps", type="number", min=10, max=1000, step=10, value=100, className="dash-input"),
+                        dcc.Input(id="setup-raxml-bootstraps", type="number", min=10, max=1000, step=10, value=_RUN_DEFAULTS.phylo_params["bs_trees"], className="dash-input"),
                         dcc.Checklist(
                             id="setup-adjust-direction",
                             options=[{"label": "Adjust direction", "value": "on"}],

@@ -97,5 +97,104 @@ class SetupDefaultsSingleSourceTests(unittest.TestCase):
         self.assertEqual(KNOWN_DIVERGENCES, set())
 
 
+def _find(node, wanted):
+    """The component with id ``wanted`` in a Dash layout tree, or ``None``."""
+    if getattr(node, "id", None) == wanted:
+        return node
+    children = getattr(node, "children", None)
+    for child in children if isinstance(children, (list, tuple)) else [children]:
+        if child is not None and not isinstance(child, str):
+            found = _find(child, wanted)
+            if found is not None:
+                return found
+    return None
+
+
+class NonNumericSetupDefaultsTests(unittest.TestCase):
+    """The controls the regex above cannot see: a text field, a dropdown, an expression.
+
+    ``_page_defaults`` reads the ``value=`` of numeric ``dcc.Input`` fields as written, so
+    three controls sat outside the net and each disagreed with ``RunConfig``: the sliding
+    window is a TEXT field ("4:15" against 4:20), the BOLD mode is a dropdown (1 against
+    2), and the bootstrap count was simply not mapped (100 against 10). A UI run and a
+    ``scripts/run_pipeline.py`` run therefore used different parameters. These read the
+    rendered layout instead, so the kind of control no longer matters.
+    """
+
+    def setUp(self):
+        from ui.pages.page_setup import layout
+
+        self.layout = layout()
+        self.config = RunConfig(run_id="t", samples=[], branch=AnalysisBranch.VSEARCH)
+        self.source = PAGE.read_text(encoding="utf-8")
+
+    def _value_expression(self, component_id: str) -> str:
+        """The page source from this component's id up to the next component's id."""
+        start = self.source.index(f'id="{component_id}"')
+        end = self.source.find('id="', start + 4)
+        return self.source[start: end if end != -1 else len(self.source)]
+
+    def test_sliding_window_text_field_matches_the_run_config(self):
+        params = self.config.trimmomatic_params
+        expected = f"{params['window_size']}:{params['window_quality']}"
+        self.assertEqual(_find(self.layout, "setup-trim-slidingwindow").value, expected)
+
+    def test_sliding_window_tooltip_does_not_advertise_another_default(self):
+        params = self.config.trimmomatic_params
+        expected = f"Default: {params['window_size']}:{params['window_quality']}."
+        self.assertNotIn("Default: 4:15", self.source)
+
+        titles = []
+
+        def collect(node):
+            title = getattr(node, "title", None)
+            if isinstance(title, str):
+                titles.append(title)
+            children = getattr(node, "children", None)
+            for child in children if isinstance(children, (list, tuple)) else [children]:
+                if child is not None and not isinstance(child, str):
+                    collect(child)
+
+        collect(self.layout)
+        window_tips = [title for title in titles if title.startswith("Window:quality")]
+        self.assertEqual(len(window_tips), 1)
+        self.assertTrue(window_tips[0].endswith(expected), window_tips[0])
+
+    def test_raxml_bootstraps_match_the_run_config(self):
+        self.assertEqual(_find(self.layout, "setup-raxml-bootstraps").value, self.config.phylo_params["bs_trees"])
+
+    def test_bold_mode_matches_the_run_config(self):
+        self.assertEqual(_find(self.layout, "setup-bold-mode").value, self.config.bold_params["mode"])
+
+    def test_these_fields_read_the_run_config_rather_than_repeat_a_literal(self):
+        """Equal today is not the same as single-sourced: a literal that happens to match
+        drifts the next time RunConfig changes, which is how these three got here."""
+        # The sliding window goes through one named constant, itself built from
+        # _RUN_DEFAULTS, because the same string also feeds the field's tooltip.
+        self.assertIn("_DEFAULT_SLIDINGWINDOW = f\"{_RUN_DEFAULTS.trimmomatic_params", self.source)
+        reads = {
+            "setup-trim-slidingwindow": "value=_DEFAULT_SLIDINGWINDOW",
+            "setup-raxml-bootstraps": "value=_RUN_DEFAULTS.phylo_params",
+            "setup-bold-mode": "value=_RUN_DEFAULTS.bold_params",
+        }
+        for component_id, expression in reads.items():
+            with self.subTest(component_id=component_id):
+                self.assertIn(expression, self._value_expression(component_id))
+
+    def test_the_defaults_these_fields_stand_for_are_unchanged(self):
+        """The alignment moved the PAGE to RunConfig, never the other way round."""
+        self.assertEqual(self.config.trimmomatic_params["window_size"], 4)
+        self.assertEqual(self.config.trimmomatic_params["window_quality"], 20)
+        self.assertEqual(self.config.phylo_params["bs_trees"], 10)
+        self.assertEqual(self.config.bold_params["mode"], 2)
+
+    def test_ncbi_max_hits_has_no_run_config_default_to_align_to(self):
+        """Reported, not fixed: RunConfig defines no NCBI max-hits default, so there is no
+        single source to point the Setup field at. The field (5), the full-pipeline
+        fallback (20) and NCBIConfig.max_target_seqs (5) remain three separate numbers.
+        If a default is ever added to RunConfig this fails, and the field must then read it."""
+        self.assertNotIn("ncbi_maxhits", self.config.vsearch_params)
+
+
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

@@ -61,6 +61,10 @@ PRIMER_PRESETS = {
     "18S_V4_TAReuk": ("CCAGCASCYGCGGTAATTCC", "ACTTTCGTTCTTGATYRA"),
     "COI_Folmer": ("GGTCAACAAATCATAAAGATATTGG", "TAAACTTCAGGGTGACCAAAAAATCA"),
     "COI_Leray": ("GGWACWGGWTGAACWGTWTAYCCYCC", "TANACYTCNGGRTGNCCRAARAAYCA"),
+    # mlCOIintF / LoboR1 — the COI pair in the laboratory's own primer list. Same forward
+    # as COI_Leray; the reverse is LoboR1, not jgHCO2198. A preset of its own so a run can
+    # name the primers that were actually ordered.
+    "COI_Leray_LoboR1": ("GGWACWGGWTGAACWGTWTAYCCYCC", "TAAACYTCWGGRTGWCCRAARAAYCA"),
 }
 
 # Which marker each preset amplifies. Chosen primers are the one *explicit* statement
@@ -73,6 +77,7 @@ PRESET_MARKER = {
     "18S_V4_TAReuk": "18S",
     "COI_Folmer": "COI",
     "COI_Leray": "COI",
+    "COI_Leray_LoboR1": "COI",
 }
 
 
