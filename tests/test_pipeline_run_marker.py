@@ -18,6 +18,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from core.models import AnalysisBranch, AnalysisMode, Marker, RunConfig, Sample, SamplePaths, StepOutput
@@ -86,8 +87,13 @@ class PipelineThreadUsesTheRunMarkerTests(unittest.TestCase):
             otus.write_text(">OTU1;size=3\nACGTACGT\n", encoding="utf-8")
             feature_set = {"key": "otu", "label": "OTU (VSEARCH)", "fasta": otus, "matrix": None}
             ok = StepOutput(step_name="stub", success=True, files={"filtered_fasta": otus, "otus_fasta": otus})
+            # No real reference: this run is about the marker, and a run with the Databases
+            # stage on fingerprints the references it finds — which, pointed at the
+            # developer's .env, would hash the real SILVA and leave a cache file beside it.
+            no_references = SimpleNamespace(silva=None, pr2=None, pr2_tax=None, pr2_dada2=None, bold_dir=None, blast=None)
 
-            with patch.object(progress, "run_vsearch_filter_sample", return_value=ok), \
+            with patch.object(progress, "get_db_paths", return_value=no_references), \
+                 patch.object(progress, "run_vsearch_filter_sample", return_value=ok), \
                  patch.object(progress, "run_vsearch_pool_and_cluster", return_value=ok), \
                  patch.object(progress, "feature_sets_from_outputs", return_value=[feature_set]), \
                  patch.object(progress, "build_metrics_from_outputs", return_value={}), \

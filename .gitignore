@@ -39,6 +39,8 @@ databases/ncbi/
 # Sidecar stats for the marker-filtered references (databases/reference_filter.py).
 # The .fasta they describe is ignored above; the pair is a rebuildable cache.
 *.filtered.*.json
+# sha256 of a reference, cached beside it by core.export.reference_fingerprint.
+*.sha256.json
 Trimmomatic-0.39/
 *.zip
 

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
+import subprocess
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 STAGE_ORDER = ["qc", "preprocess", "analysis", "databases", "phylo"]
@@ -107,6 +111,127 @@ def _add_metrics(zf, seen: set, run_id: str, stage: str, metrics_files: dict) ->
         _write(zf, seen, path, parts)
 
 
+# ── Provenance recorded when a run starts ────────────────────────────────
+#
+# These feed the run_config block of progress.json (ui.callbacks_progress._run_provenance).
+# None of them may raise: a run must never fail because its own description could not be
+# completed. Each failure has a word of its own instead — "unknown", "unavailable".
+
+_HASH_CHUNK = 1024 * 1024
+
+
+def git_commit(repo_root=None) -> str:
+    """The commit of the code that is running, or ``"unknown"`` (no git, no repository)."""
+    root = Path(repo_root) if repo_root else Path(__file__).resolve().parent.parent
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(root), capture_output=True, text=True, timeout=10, check=True
+        )
+    except Exception:
+        return "unknown"
+    commit = (completed.stdout or "").strip()
+    return commit or "unknown"
+
+
+def _fingerprint_cache_path(path: Path) -> Path:
+    return path.parent / f"{path.name}.sha256.json"
+
+
+def _read_fingerprint_cache(path: Path, size: int, mtime_ns: int):
+    """The cached sha256 for this exact size+mtime, or ``None``."""
+    try:
+        cached = json.loads(_fingerprint_cache_path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(cached, dict):
+        return None
+    if cached.get("size_bytes") != size or cached.get("mtime_ns") != mtime_ns:
+        return None
+    digest = cached.get("sha256")
+    return digest if isinstance(digest, str) and digest else None
+
+
+def _write_fingerprint_cache(path: Path, size: int, mtime_ns: int, digest: str) -> None:
+    _fingerprint_cache_path(path).write_text(
+        json.dumps({"file": path.name, "size_bytes": size, "mtime_ns": mtime_ns, "sha256": digest}, indent=2),
+        encoding="utf-8",
+    )
+
+
+def reference_fingerprint(path) -> dict:
+    """``{file, size_bytes, mtime, sha256}`` for one local reference file.
+
+    A file NAME does not identify a reference — two downloads of "the same" release can
+    differ — so the run records a sha256. Hashing a multi-hundred-MB FASTA costs seconds,
+    so the digest is cached in ``<file>.sha256.json`` beside the reference and reused for
+    as long as the size and the mtime are both unchanged. Where that directory is
+    read-only (the Docker mounts are) the cache simply is not written and the next run
+    hashes again; the digest itself is still returned.
+    """
+    path = Path(path)
+    result = {"file": path.name, "size_bytes": None, "mtime": None, "sha256": "unavailable"}
+    try:
+        stat = path.stat()
+        result["size_bytes"] = int(stat.st_size)
+        result["mtime"] = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if not path.is_file():
+            return result
+        digest = _read_fingerprint_cache(path, stat.st_size, stat.st_mtime_ns)
+        if digest is None:
+            hasher = hashlib.sha256()
+            with path.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(_HASH_CHUNK), b""):
+                    hasher.update(chunk)
+            digest = hasher.hexdigest()
+            try:
+                _write_fingerprint_cache(path, stat.st_size, stat.st_mtime_ns, digest)
+            except OSError:
+                pass
+        result["sha256"] = digest
+    except Exception:
+        result["sha256"] = "unavailable"
+    return result
+
+
+def _flatten_parameters(value, prefix: str = "") -> list:
+    """``{"tree": {"seed": 42}}`` -> ``[("tree.seed", 42)]`` — one line per setting."""
+    if isinstance(value, dict):
+        rows = []
+        for key, inner in value.items():
+            rows.extend(_flatten_parameters(inner, f"{prefix}.{key}" if prefix else str(key)))
+        return rows
+    return [(prefix, value)]
+
+
+def _recorded_provenance_lines(config: dict) -> list:
+    """The PROVENANCE sections a run recorded about itself; ``[]`` for an older run."""
+    lines: list = []
+
+    commit = config.get("parafish_commit")
+    if commit:
+        lines += ["", "PARAFISH commit", "-" * 46, f"  {commit}"]
+
+    references = config.get("references")
+    if isinstance(references, list) and references:
+        lines += ["", "References", "-" * 46]
+        for entry in references:
+            if not isinstance(entry, dict):
+                continue
+            lines.append(f"  {str(entry.get('source', '')).upper():8s} {entry.get('file', '—')}")
+            lines.append(f"           size   : {entry.get('size_bytes', '—')} bytes")
+            lines.append(f"           mtime  : {entry.get('mtime', '—')}")
+            lines.append(f"           sha256 : {entry.get('sha256', '—')}")
+
+    parameters = config.get("parameters")
+    if isinstance(parameters, dict) and parameters:
+        lines += ["", "Parameters", "-" * 46]
+        for section, values in parameters.items():
+            lines.append(f"  [{section}]")
+            for key, value in _flatten_parameters(values):
+                lines.append(f"    {key} = {value}" if key else f"    {value}")
+    return lines
+
+
 def render_provenance(config: dict, tool_versions=None) -> str:
     """A human-readable recipe for a run, RENDERED from the run_config block progress.json
     already carries (``_run_provenance``) — a legible view of the single source, never a
@@ -142,7 +267,13 @@ def render_provenance(config: dict, tool_versions=None) -> str:
         ]
 
     lines = ["PARAFISH — run provenance", "=" * 46, "", "Recipe", "-" * 46, *recipe, "", "Tool versions", "-" * 46]
-    if tool_versions:
+    # What the run recorded when it started wins over anything resolved now: the binary
+    # on this machine at export time may no longer be the one that produced the data.
+    recorded_versions = config.get("tool_versions")
+    if isinstance(recorded_versions, dict) and recorded_versions:
+        lines.append("  (recorded when the run started)")
+        lines += [f"  {tool:12s} {version}" for tool, version in recorded_versions.items()]
+    elif tool_versions:
         lines += [f"  {tool:12s} {version}" for tool, version in tool_versions]
     else:
         lines += [
@@ -150,6 +281,7 @@ def render_provenance(config: dict, tool_versions=None) -> str:
             "  Versions are read from the binaries configured at export",
             "  time; without them the recipe is incomplete for reproduction.",
         ]
+    lines += _recorded_provenance_lines(config)
     return "\n".join(lines) + "\n"
 
 

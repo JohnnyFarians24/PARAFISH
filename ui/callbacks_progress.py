@@ -85,6 +85,152 @@ def _pipeline_run_marker(run_config) -> str:
     return marker
 
 
+def _recorded_parameters(run_config, requested_sources, ncbi_local: bool) -> dict:
+    """Every stage's parameters as this run will use them, for the progress.json record.
+
+    The run_config block used to name the sources and little else, so the clustering
+    identity, the SINTAX cutoff or the bootstrap count of a finished run could only be
+    recovered from tool logs. The ``databases`` values are computed with the SAME
+    expressions the Databases stage uses further down in ``_run_pipeline_thread`` (the
+    NCBIConfig/BOLDConfig construction) — if one changes, change the other.
+    """
+    from databases.taxonomy_runner import SINTAX_RANDSEED
+
+    vsearch_params = dict(run_config.vsearch_params or {})
+    databases = {
+        "db_sources": list(requested_sources),
+        "marker": _pipeline_run_marker(run_config),
+        "sintax_cutoff": float(vsearch_params.get("sintax_cutoff", 0.8)),
+        "sintax_randseed": SINTAX_RANDSEED,
+        "consensus_method": str(vsearch_params.get("db_consensus") or "lca"),
+    }
+    if "ncbi" in requested_sources:
+        ncbi_defaults = NCBIConfig.__dataclass_fields__
+        databases["ncbi"] = {
+            "mode": "local" if ncbi_local else "remote",
+            "task": str(vsearch_params.get("ncbi_task") or ("blastn" if ncbi_local else "megablast")),
+            "word_size": int(vsearch_params["ncbi_word_size"]) if vsearch_params.get("ncbi_word_size") else (11 if ncbi_local else None),
+            "evalue": float(vsearch_params.get("ncbi_evalue", 1e-10)),
+            "max_target_seqs": int(vsearch_params.get("ncbi_maxhits", 20)),
+            "perc_identity": ncbi_defaults["perc_identity"].default,
+            "qcov_hsp_perc": ncbi_defaults["qcov_hsp_perc"].default,
+        }
+    if "bold" in requested_sources:
+        bold_params = run_config.bold_params or {}
+        databases["bold"] = {
+            "db": int(bold_params.get("db", 1)),
+            "mode": int(bold_params.get("mode", 2)),
+            "thresholds": list(BOLDConfig.__dataclass_fields__["thresholds"].default_factory()),
+        }
+    phylo_mode = getattr(run_config, "phylo_mode", None)
+    return {
+        "enabled_stages": dict(run_config.enabled_stages or {}),
+        "trimmomatic": dict(run_config.trimmomatic_params or {}),
+        "pear": dict(run_config.pear_params or {}),
+        "vsearch": vsearch_params,
+        "dada2": dict(run_config.dada2_params or {}),
+        "databases": databases,
+        "phylo": {
+            "mode": getattr(phylo_mode, "value", phylo_mode),
+            "mafft": dict(run_config.mafft_params or {}),
+            "tree": dict(run_config.phylo_params or {}),
+        },
+    }
+
+
+def _probe_version(argv, pattern: str) -> str:
+    """One tool's version from its own output, or ``"unresolved"``. Never raises."""
+    import re
+    import subprocess
+
+    try:
+        out = subprocess.run(argv, capture_output=True, text=True, timeout=15, input="")
+        match = re.search(pattern, f"{out.stdout or ''}\n{out.stderr or ''}")
+        return match.group(1) if match else "unresolved"
+    except Exception:
+        return "unresolved"
+
+
+def _recorded_tool_versions(run_config):
+    """Tool -> version, resolved NOW from the configured binaries. Never raises.
+
+    PROVENANCE.txt used to resolve versions when the ZIP was exported, so an export made
+    after an upgrade reported a version that never touched the data. The resolver is the
+    one the Results page already uses (configured paths, not $PATH), plus the tools it
+    does not list. A tool that cannot be resolved is ``"unresolved"`` — the run goes on.
+    """
+    try:
+        from ui.callbacks_results_summary import _resolve_tool_versions
+
+        versions = {}
+        for tool, version, resolved in _resolve_tool_versions():
+            detected = bool(resolved) and "not detected" not in str(version)
+            versions[str(tool)] = str(version) if detected else "unresolved"
+    except Exception:
+        return "unresolved"
+
+    try:
+        import shutil
+
+        from core.config import CUTADAPT_PATH, RSCRIPT_PATH, TRIMMOMATIC_JAR_PATH
+
+        versions["cutadapt"] = _probe_version([CUTADAPT_PATH, "--version"], r"^\s*([\d.]+)") if shutil.which(CUTADAPT_PATH) or Path(CUTADAPT_PATH).is_file() else "unresolved"
+        versions["Trimmomatic"] = (
+            _probe_version(["java", "-jar", str(TRIMMOMATIC_JAR_PATH), "-version"], r"([\d.]+)")
+            if Path(TRIMMOMATIC_JAR_PATH).is_file() and shutil.which("java")
+            else "unresolved"
+        )
+        if getattr(run_config, "analysis_method", "vsearch") in ("dada2", "both"):
+            versions["DADA2"] = (
+                _probe_version([RSCRIPT_PATH, "-e", "cat(as.character(packageVersion('dada2')))"], r"([\d.]+)")
+                if shutil.which(RSCRIPT_PATH) or Path(RSCRIPT_PATH).is_file()
+                else "unresolved"
+            )
+        try:
+            from importlib.metadata import version as _package_version
+
+            versions["boldigger3"] = _package_version("boldigger3")
+        except Exception:
+            versions["boldigger3"] = "unresolved"
+    except Exception:
+        pass
+    return versions
+
+
+def _recorded_references(run_config, requested_sources, db_paths, ncbi_local: bool) -> list:
+    """Name, size, mtime and sha256 of each LOCAL reference this run will use.
+
+    Only when the Databases stage is enabled, and only for the sources requested: a run
+    that never opens SILVA has no business hashing 800 MB of it. Remote sources (NCBI nt,
+    BOLD) have no file to fingerprint; their settings are under ``parameters.databases``.
+    """
+    from core.export import reference_fingerprint
+
+    if not (run_config.enabled_stages or {}).get("databases", True):
+        return []
+    candidates = []
+    if "silva" in requested_sources:
+        candidates.append(("silva", getattr(db_paths, "silva", None)))
+    if "pr2" in requested_sources:
+        candidates.append(("pr2", getattr(db_paths, "pr2", None)))
+        candidates.append(("pr2_taxonomy", getattr(db_paths, "pr2_tax", None)))
+    if "ncbi" in requested_sources and ncbi_local:
+        candidates.append(("ncbi_local", getattr(db_paths, "blast", None)))
+    custom = (run_config.vsearch_params or {}).get("custom_db_path")
+    if custom:
+        candidates.append(("custom", custom))
+    references = []
+    for source, path in candidates:
+        if not path:
+            continue
+        # A missing file is still listed (sha256 "unavailable"), except for the references
+        # the Databases stage itself drops silently when the file is absent.
+        if source != "ncbi_local" and not Path(path).exists():
+            continue
+        references.append({"source": source, **reference_fingerprint(path)})
+    return references
+
+
 def _run_provenance(run_config, run_config_data) -> dict:
     """The resolved config a run was made under, for the progress.json record.
 
@@ -108,7 +254,7 @@ def _run_provenance(run_config, run_config_data) -> dict:
     markers = sorted({sample.marker.value for sample in _selected_samples(run_config.samples)})
     db_paths = get_db_paths()
     ncbi_local = bool(NCBI_USE_LOCAL_DB and db_paths.blast and db_paths.blast.exists())
-    return {
+    block = {
         "db_sources": requested_sources,
         "min_unique_size": int(vsearch_params.get("min_unique_size", MIN_UNIQUE_SIZE)),
         "analysis_method": getattr(run_config, "analysis_method", "vsearch"),
@@ -117,6 +263,29 @@ def _run_provenance(run_config, run_config_data) -> dict:
         "primers": {"fwd": forward, "rev": reverse},
         "ncbi_mode": "local" if ncbi_local else "remote",
     }
+    # Recorded when the run starts, and ADDED to the keys above — never instead of them.
+    # Each is best-effort on its own: describing the run must not be able to fail it, and
+    # one that cannot be completed says so rather than taking the others down with it.
+    # ``default=str`` because a parameter dict may carry a Path, which json cannot write.
+    try:
+        block["parameters"] = json.loads(json.dumps(_recorded_parameters(run_config, requested_sources, ncbi_local), default=str))
+    except Exception:
+        block["parameters"] = "unavailable"
+    try:
+        block["tool_versions"] = _recorded_tool_versions(run_config)
+    except Exception:
+        block["tool_versions"] = "unresolved"
+    try:
+        block["references"] = _recorded_references(run_config, requested_sources, db_paths, ncbi_local)
+    except Exception:
+        block["references"] = "unavailable"
+    try:
+        from core.export import git_commit
+
+        block["parafish_commit"] = git_commit()
+    except Exception:
+        block["parafish_commit"] = "unknown"
+    return block
 
 
 def _run_pipeline_thread(run_config, run_config_data, progress_path):
