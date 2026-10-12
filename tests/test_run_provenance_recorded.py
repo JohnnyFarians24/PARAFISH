@@ -328,5 +328,82 @@ class RenderProvenancePrefersWhatTheRunRecordedTests(unittest.TestCase):
         self.assertTrue(render_provenance(self.NEW_CONFIG, None).startswith(recipe))
 
 
+class RecordedBlockReachesTheProvenanceFileTests(unittest.TestCase):
+    """What the run WRITES must be what PROVENANCE.txt READS — key for key.
+
+    The rendering tests above feed ``render_provenance`` a hand-written block, so they
+    prove the reader against the keys the test author typed, not against the keys the
+    recorder emits. A key spelled one way by ``_run_provenance`` / ``reference_fingerprint``
+    and another way by the renderer (``sha25`` for ``sha256``) would pass all of them and
+    print "—" in every real run. These build the block with the real recorder and render
+    it with the real renderer; nothing in between is typed by hand.
+    """
+
+    CONTENT = b">a\nACGTACGTACGT\n"
+
+    @classmethod
+    def setUpClass(cls):
+        import ui.callbacks_progress as progress
+        from core.export import render_provenance
+
+        cls._tmp = tempfile.TemporaryDirectory()
+        tmp = Path(cls._tmp.name)
+        silva = tmp / "silva_reference.fasta"
+        silva.write_bytes(cls.CONTENT)
+        run_config, run_config_data = _fixture_config(tmp / "run", ["silva"], ["databases"])
+        fake_paths = SimpleNamespace(silva=silva, pr2=None, pr2_tax=None, pr2_dada2=None, bold_dir=None, blast=None)
+        with patch.object(progress, "get_db_paths", return_value=fake_paths):
+            cls.block = progress._run_provenance(run_config, run_config_data)
+        # Export-time versions that must LOSE to the recorded ones.
+        cls.text = render_provenance(cls.block, [("vsearch", "0.0.0-export-time")])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._tmp.cleanup()
+
+    def test_the_recorded_sha256_appears_in_the_file(self):
+        digest = hashlib.sha256(self.CONTENT).hexdigest()
+        self.assertEqual(self.block["references"][0]["sha256"], digest)
+        self.assertIn(f"sha256 : {digest}", self.text)
+
+    def test_the_recorded_file_name_and_source_appear(self):
+        self.assertIn("SILVA    silva_reference.fasta", self.text)
+
+    def test_the_recorded_size_appears(self):
+        self.assertEqual(self.block["references"][0]["size_bytes"], len(self.CONTENT))
+        self.assertIn(f"size   : {len(self.CONTENT)} bytes", self.text)
+
+    def test_the_recorded_mtime_appears(self):
+        mtime = self.block["references"][0]["mtime"]
+        self.assertTrue(mtime)
+        self.assertIn(f"mtime  : {mtime}", self.text)
+
+    def test_the_recorded_commit_appears(self):
+        commit = self.block["parafish_commit"]
+        self.assertTrue(commit)
+        self.assertIn(f"PARAFISH commit\n{'-' * 46}\n  {commit}", self.text)
+
+    def test_the_recorded_tool_versions_appear_and_export_time_ones_do_not(self):
+        versions = self.block["tool_versions"]
+        self.assertIsInstance(versions, dict)
+        for tool, version in versions.items():
+            with self.subTest(tool=tool):
+                self.assertIn(f"  {tool:12s} {version}", self.text)
+        self.assertNotIn("0.0.0-export-time", self.text)
+
+    def test_every_recorded_parameter_section_appears(self):
+        for section in self.block["parameters"]:
+            with self.subTest(section=section):
+                self.assertIn(f"  [{section}]", self.text)
+        self.assertIn("    id = 0.97", self.text)
+        self.assertIn("    sintax_randseed = 42", self.text)
+
+    def test_no_reference_field_renders_as_missing(self):
+        # The renderer prints an em dash for a key it cannot find. For a block the recorder
+        # just produced, any em dash in the References section is a writer/reader mismatch.
+        section = self.text.split("References\n", 1)[1].split("\nParameters", 1)[0]
+        self.assertNotIn("—", section)
+
+
 if __name__ == "__main__":
     unittest.main()
