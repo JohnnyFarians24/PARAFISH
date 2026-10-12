@@ -278,3 +278,80 @@ class DiscardUntrimmedTests(unittest.TestCase):
         from core.config import DISCARD_UNTRIMMED
 
         self.assertTrue(DISCARD_UNTRIMMED)
+
+
+class LabCoiPresetTests(unittest.TestCase):
+    """The COI pair the laboratory actually ordered is mlCOIintF / LoboR1.
+
+    ``COI_Leray`` pairs mlCOIintF with jgHCO2198, which is not the reverse primer in the
+    lab's own list ("Primers utilizados metabarcoding.txt": COI, LoboR1). A thesis must
+    name the primers that were used, so the lab's pair gets a preset of its own. It is
+    ADDED: ``COI_Leray`` keeps its sequences, and ``auto`` still declines to guess for COI.
+    """
+
+    FWD = "GGWACWGGWTGAACWGTWTAYCCYCC"  # mlCOIintF
+    REV = "TAAACYTCWGGRTGWCCRAARAAYCA"  # LoboR1
+
+    def _config(self, marker, **params):
+        from core.models import AnalysisBranch, AnalysisMode, RunConfig, Sample, SamplePaths
+
+        sample = Sample(
+            internal_id="s1",
+            display_label="s1",
+            paths=SamplePaths(r1=Path("/tmp/r1.fastq")),
+            mode=AnalysisMode.SE,
+            marker=marker,
+        )
+        config = RunConfig(run_id="r", samples=[sample], branch=AnalysisBranch.VSEARCH)
+        config.vsearch_params.update(params)
+        return config
+
+    def test_the_preset_carries_the_lab_sequences_and_is_coi(self):
+        from analysis.vsearch_runner import PRESET_MARKER, PRIMER_PRESETS
+
+        self.assertEqual(PRIMER_PRESETS["COI_Leray_LoboR1"], (self.FWD, self.REV))
+        self.assertEqual(PRESET_MARKER["COI_Leray_LoboR1"], "COI")
+
+    def test_resolve_primers_returns_the_lab_pair(self):
+        from preprocess.cutadapt_runner import resolve_primers
+
+        config = self._config(Marker.OTHER, primer_preset="COI_Leray_LoboR1")
+        self.assertEqual(resolve_primers(config), (self.FWD, self.REV))
+
+    def test_the_run_marker_follows_the_preset(self):
+        from databases.reference_filter import resolve_run_marker
+
+        marker, _ = resolve_run_marker([Marker.OTHER], {"primer_preset": "COI_Leray_LoboR1"})
+        self.assertEqual(marker, "COI")
+
+    def test_the_existing_leray_preset_is_untouched(self):
+        from analysis.vsearch_runner import PRIMER_PRESETS
+
+        self.assertEqual(
+            PRIMER_PRESETS["COI_Leray"],
+            ("GGWACWGGWTGAACWGTWTAYCCYCC", "TANACYTCNGGRTGNCCRAARAAYCA"),
+        )
+
+    def test_auto_still_declines_to_guess_for_coi(self):
+        from preprocess.cutadapt_runner import resolve_primers
+
+        self.assertEqual(resolve_primers(self._config(Marker.COI, primer_preset="auto")), ("", ""))
+
+    def test_the_setup_dropdown_offers_it_under_the_lab_label(self):
+        from ui.pages.page_setup import layout
+
+        def find(node, wanted):
+            if getattr(node, "id", None) == wanted:
+                return node
+            children = getattr(node, "children", None)
+            for child in children if isinstance(children, (list, tuple)) else [children]:
+                if child is not None and not isinstance(child, str):
+                    found = find(child, wanted)
+                    if found is not None:
+                        return found
+            return None
+
+        dropdown = find(layout(), "setup-primer-preset")
+        options = {option["value"]: option["label"] for option in dropdown.options}
+        self.assertEqual(options.get("COI_Leray_LoboR1"), "COI — mlCOIintF / LoboR1 (lab)")
+        self.assertEqual(dropdown.value, "auto")

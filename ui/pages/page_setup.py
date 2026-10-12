@@ -210,6 +210,7 @@ def _analysis_card():
                                     {"label": "18S V4 — TAReuk454FWD1 / TAReukREV3", "value": "18S_V4_TAReuk"},
                                     {"label": "COI — Folmer (LCO1490 / HCO2198)", "value": "COI_Folmer"},
                                     {"label": "COI — Leray (mlCOIintF / jgHCO2198)", "value": "COI_Leray"},
+                                    {"label": "COI — mlCOIintF / LoboR1 (lab)", "value": "COI_Leray_LoboR1"},
                                 ],
                                 # "auto", not "": the old default was the same value as
                                 # "do not strip primers", so an untouched control meant
