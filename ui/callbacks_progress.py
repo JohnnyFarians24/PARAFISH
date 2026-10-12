@@ -26,7 +26,7 @@ from databases.bold_db import BOLDConfig
 from databases.database_metrics import build_database_metrics
 from databases.ncbi_db import NCBIConfig
 from databases.pr2_db import PR2Config
-from databases.reference_filter import marker_filter_applies, resolve_marker
+from databases.reference_filter import marker_filter_applies, resolve_run_marker
 from databases.silva_db import SILVAConfig
 from databases.taxonomy_runner import run_taxonomy_pipeline
 from phylo import phylo_input_error
@@ -69,6 +69,20 @@ def _count_features(fasta_path) -> int:
 
 def _selected_samples(samples):
 	return [sample for sample in samples or [] if getattr(sample, "selected", True)]
+
+
+def _pipeline_run_marker(run_config) -> str:
+    """The marker this run amplified, resolved the way Setup resolves it.
+
+    Primer preset first, the samples' file-name markers as the fallback — the same
+    ``resolve_run_marker`` the Setup page, the standalone Databases callback and
+    ``RunConfig.marker`` already use. This thread used ``resolve_marker`` over the file
+    names alone, so a COI/Leray run on files named ``aptl64b_01`` reached the Databases
+    stage as OTHER and SILVA/PR2 were not marked not_applicable. With no preset (or
+    ``auto``) the preset names no marker and the result is the file-name marker, as before.
+    """
+    marker, _ = resolve_run_marker((sample.marker for sample in run_config.samples), run_config.vsearch_params)
+    return marker
 
 
 def _run_provenance(run_config, run_config_data) -> dict:
@@ -666,7 +680,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 # The marker and the primers this run amplified with are what SILVA/PR2
                 # get cut down to, so the reference describes the same stretch of gene as
                 # the queries — and fits in RAM on the way.
-                run_marker = resolve_marker(sample.marker for sample in run_config.samples)
+                run_marker = _pipeline_run_marker(run_config)
                 run_primers = resolve_primers(run_config)
 
                 # Report up front what will not fit in RAM, instead of letting the OS
