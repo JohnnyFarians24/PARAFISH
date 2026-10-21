@@ -969,8 +969,12 @@ def run_sintax(fasta_path: Path, db_path: Path, cutoff: float, threads: int, out
 		str(cutoff),
 		"--tabbedout",
 		str(result_path),
+		# One thread, whatever the run's thread count. VSEARCH itself warns that "using the
+		# --sintax command with the --randseed option may not work as intended with
+		# multiple threads"; three runs of the same 11 OTUs against the same PR2 reference
+		# gave one OTU 0.76, 0.80 and 0.80, i.e. Eukaryota once and a species twice.
 		"--threads",
-		str(threads),
+		"1",
 		# SINTAX bootstraps by randomly subsampling k-mers, and vsearch's --randseed
 		# defaults to 0 = "use a random data source". Unseeded, the same reads against the
 		# same reference give different bootstraps on every run: SILVA called OTU4 at 0.99
@@ -989,7 +993,7 @@ def run_sintax(fasta_path: Path, db_path: Path, cutoff: float, threads: int, out
 	except subprocess.CalledProcessError as exc:
 		if exc.returncode is not None and exc.returncode < 0:
 			reason = (
-				f"VSEARCH SINTAX foi terminado pelo sistema (sinal {-exc.returncode}), "
+				f"VSEARCH SINTAX was killed by the system (signal {-exc.returncode}), "
 				f"almost certainly for lack of memory (OOM)."
 			)
 			message = (preamble + "\n\n" if preamble else "") + reason

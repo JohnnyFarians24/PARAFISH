@@ -145,3 +145,28 @@ class FastTreeKeyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SintaxSingleThreadTests(unittest.TestCase):
+    """VSEARCH warns that --randseed does not make --sintax reproducible on several threads."""
+
+    def test_sintax_runs_on_one_thread_whatever_the_run_threads(self):
+        import subprocess as sp
+
+        captured = {}
+
+        def fake_run(command, **kwargs):
+            captured["command"] = command
+            return sp.CompletedProcess(args=command, returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "q.fasta").write_text(">OTU1\nACGT\n", encoding="utf-8")
+            (root / "db.fasta").write_text(">R1;tax=d:Eukaryota\nACGT\n", encoding="utf-8")
+            with mock.patch("databases.taxonomy_runner.subprocess.run", side_effect=fake_run):
+                from databases.taxonomy_runner import run_sintax
+
+                run_sintax(root / "q.fasta", root / "db.fasta", 0.8, 12, output_dir=root)
+        command = captured["command"]
+        self.assertEqual(command[command.index("--threads") + 1], "1")
+        self.assertIn("--randseed", command)
