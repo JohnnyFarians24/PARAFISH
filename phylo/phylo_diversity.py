@@ -100,8 +100,13 @@ def faith_pd(tree_path, otu_matrix_path, id_mapping_csv=None) -> dict:
 
     def _tip_for(feature_id: str) -> Optional[str]:
         for candidate in (orig_to_tip.get(_strip_size(feature_id)), feature_id, _strip_size(feature_id)):
-            if candidate and candidate in tip_names:
-                return candidate
+            if not candidate:
+                continue
+            # MAFFT --adjustdirection prefixes reverse-complemented records with "_R_",
+            # and the tree keeps that name; without this those features were dropped.
+            for name in (candidate, "_R_" + candidate):
+                if name in tip_names:
+                    return name
         return None
 
     feature_tip = [_tip_for(fid) for fid in feature_ids]

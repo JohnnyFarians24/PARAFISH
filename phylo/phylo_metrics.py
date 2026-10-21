@@ -183,6 +183,8 @@ def unifrac_distances(tree_path, matrix_path, id_mapping_csv=None, weighted: boo
     # produce a matrix of silent zeros.
     tips = {node.name for node in tree.tips() if node.name}
     taxa = [mapping.get(feature.split(";")[0].strip()) for feature in features]
+    # Reverse-complemented records keep MAFFT's "_R_" prefix on the tree's tips.
+    taxa = [name if (not name or name in tips) else (_REVERSED_PREFIX + name) for name in taxa]
     keep = [index for index, name in enumerate(taxa) if name and name in tips]
     if not keep:
         return {}

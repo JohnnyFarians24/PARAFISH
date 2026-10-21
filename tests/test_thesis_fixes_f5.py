@@ -66,6 +66,28 @@ class CustomBlastStatusTests(unittest.TestCase):
         self.assertNotIn("matched", self._reconcile(1))
 
 
+class FaithReversedTipTests(unittest.TestCase):
+    """MAFFT --adjustdirection renames reversed records ``_R_<id>``; those tips were lost."""
+
+    def test_reversed_tip_contributes_its_branch(self):
+        from phylo.phylo_diversity import faith_pd
+
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            tree = d / "tree.nwk"
+            tree.write_text("((ASV1:1.0,_R_ASV2:2.0):0.5,ASV3:1.0);\n")
+            mapping = d / "reversed_asvs.csv"
+            with mapping.open("w", newline="") as handle:
+                w = csv.writer(handle)
+                w.writerow(["ASV_ID", "Original_Header"])
+                w.writerows([["ASV1", "OTU1"], ["ASV2", "OTU2"], ["ASV3", "OTU3"]])
+            matrix = d / "otu_matrix.csv"
+            matrix.write_text("#OTU ID,S1\nOTU1,0\nOTU2,5\nOTU3,0\n")
+            result = faith_pd(tree, matrix, mapping)
+        self.assertEqual(result["matched_features"], 1)
+        self.assertGreater(result["pd"][0], 0.0)
+
+
 class AutoPrimerWarningTests(unittest.TestCase):
     """A COI run left on "auto" removed no primers and said nothing."""
 
