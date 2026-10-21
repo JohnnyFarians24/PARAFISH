@@ -25,39 +25,39 @@ RUN printf 'deb http://archive.debian.org/debian bullseye main\ndeb http://archi
     libarchive-tools \
     && rm -rf /var/lib/apt/lists/*
 
+# The tools live in their own environment rather than in base: updating base would also
+# have to update conda itself, which the solver may refuse. Strict channel priority keeps
+# conda-forge and bioconda from mixing builds of the same library.
 COPY environment.yml /tmp/environment.yml
-RUN conda env update --name base --file /tmp/environment.yml \
+RUN conda config --system --set channel_priority strict \
+    && conda env create --name parafish --file /tmp/environment.yml \
     && conda clean -afy
+ENV PATH="/opt/conda/envs/parafish/bin:/opt/conda/bin:/usr/local/bin:$PATH"
 
-ARG VSEARCH_VERSION=2.28.1
-RUN wget -q https://github.com/torognes/vsearch/releases/download/v${VSEARCH_VERSION}/vsearch-${VSEARCH_VERSION}-linux-x86_64-static.tar.gz \
-    && tar xzf vsearch-${VSEARCH_VERSION}-linux-x86_64-static.tar.gz \
-    && mv vsearch-${VSEARCH_VERSION}-linux-x86_64-static/bin/vsearch /usr/local/bin/vsearch \
-    && chmod +x /usr/local/bin/vsearch \
-    && rm -rf vsearch-${VSEARCH_VERSION}*
+# VSEARCH comes from the Conda environment (environment.yml).
 
 # PEAR is installed via conda (see environment.yml). No binary download here.
 # FastTree is installed via apt above; ensure the binary is available on PATH
 RUN ln -sf $(which FastTree 2>/dev/null || which fasttree 2>/dev/null || echo /usr/bin/fasttree) /usr/local/bin/fasttree || true
 
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# lxml_html_clean: lxml >= 6 moved lxml.html.clean out, and BOLDigger3 still imports it.
+RUN pip install --no-cache-dir -r /tmp/requirements.txt lxml_html_clean
 
 WORKDIR /app
 COPY . /app
 
 RUN mkdir -p /data/silva /data/pr2 /data/bold_db /data/blast_db /data/runs /data/config
 
-# If conda installed Trimmomatic, create a stable path expected by the app
+# Stable paths for the Trimmomatic JAR and adapters expected by core/config.py. Bioconda
+# installs them under a versioned folder, so it is located with a glob.
 RUN mkdir -p /opt/Trimmomatic \
-        && if [ -f /opt/conda/share/trimmomatic/trimmomatic.jar ]; then \
-                 ln -sf /opt/conda/share/trimmomatic/trimmomatic.jar /opt/Trimmomatic/trimmomatic.jar; \
-             fi \
-        && if [ -d /opt/conda/share/trimmomatic/adapters ]; then \
-                 ln -sf /opt/conda/share/trimmomatic/adapters /opt/Trimmomatic/adapters; \
-             fi
+    && J=$(ls /opt/conda/envs/parafish/share/trimmomatic*/trimmomatic*.jar 2>/dev/null | head -1) \
+    && if [ -n "$J" ]; then \
+           ln -sf "$J" /opt/Trimmomatic/trimmomatic.jar; \
+           ln -sfn "$(dirname "$J")/adapters" /opt/Trimmomatic/adapters; \
+       else echo "WARNING: Trimmomatic JAR not found in the Conda environment"; fi
 
-ENV PATH="/opt/conda/bin:/usr/local/bin:$PATH"
 
 EXPOSE 8050
 CMD ["python", "app.py"]

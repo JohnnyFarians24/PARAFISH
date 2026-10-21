@@ -19,10 +19,19 @@ defaults:
 
 jobs:
   docker:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moves to a new release from October 2026.
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      # The image (R, Bioconductor, BLAST, Java) needs more disk than the runner leaves free.
+      - name: Free disk space on the runner
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af >/dev/null 2>&1 || true
+          df -h / | tail -1
 
       - name: Build the image
         run: |
