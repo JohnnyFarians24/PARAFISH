@@ -18,4 +18,3 @@ dependencies:
   - bioconductor-dada2=1.30.0
   - wget
   - curl
-  - bsdtar
