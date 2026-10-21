@@ -464,7 +464,7 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                         sample,
                         paths=SamplePaths(r1=Path(r1_primer), r2=Path(r2_primer) if r2_primer else None),
                     )
-                    entry = _log_entry(utc_now_iso(), "OK", f"cutadapt {sample.internal_id}: primers removidos")
+                    entry = _log_entry(utc_now_iso(), "OK", f"cutadapt {sample.internal_id}: primers removed")
                     logs.append(entry)
                     append_log(progress_path, entry)
                 trim_res = run_trimmomatic(sample_for_trim, run_config)

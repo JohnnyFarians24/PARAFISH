@@ -962,7 +962,7 @@ def register_callbacks(app: Any) -> None:
                 ]
                 if "Reliability" in frame.columns:
                     high = int((frame["Reliability"].astype(str) == "high").sum())
-                    pills.append(html.Div(f"{high} de fiabilidade alta", className="status-pill"))
+                    pills.append(html.Div(f"{high} high reliability", className="status-pill"))
                 children.append(html.Div(pills, className="chip-list"))
 
                 # Sort by the evidence, best first, so the strongest calls are the ones

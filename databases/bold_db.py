@@ -575,7 +575,7 @@ def run_boldigger(fasta_path: Path, config: BOLDConfig, output_dir: Path) -> Ste
 			last_error = ""
 			break
 		except subprocess.TimeoutExpired:
-			last_error = f"BOLDigger3 excedeu timeout de {config.timeout}s."
+			last_error = f"BOLDigger3 exceeded the timeout of {config.timeout}s."
 			log_lines.append(last_error)
 			break
 		except subprocess.CalledProcessError as exc:

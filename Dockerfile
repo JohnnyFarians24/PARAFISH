@@ -5,6 +5,8 @@ LABEL description="Metabarcoding pipeline for fish parasites"
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# Dash listens on 127.0.0.1 unless HOST is set, which is unreachable from outside the container.
+ENV HOST=0.0.0.0
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

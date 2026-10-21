@@ -404,7 +404,7 @@ def build_marker_reference(
             # is merely too big for one that is the right size and classifies nothing.
             if cut and cut >= max(1, int(kept * MIN_AMPLICON_YIELD)):
                 amplicon_path.replace(lineage_path)
-                steps.append(f"recortada aos primers {forward[:12]}…/{reverse[:12]}… ({cut:,} de {kept:,})".replace(",", " "))
+                steps.append(f"cut to the primers {forward[:12]}…/{reverse[:12]}… ({cut:,} of {kept:,})".replace(",", " "))
                 records = cut
             else:
                 amplicon_path.unlink(missing_ok=True)

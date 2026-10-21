@@ -37,7 +37,7 @@ def validate_manifest(config: RunConfig) -> List[str]:
     seen_ids = set()
     for sample in config.samples:
         if sample.internal_id in seen_ids:
-            errors.append(f"Sample ID duplicado: {sample.internal_id}")
+            errors.append(f"Duplicate sample ID: {sample.internal_id}")
         seen_ids.add(sample.internal_id)
 
         try:

@@ -59,7 +59,7 @@ LOW_CONFIDENCE_SAMPLES = 5
 MIN_FEATURES = 3
 
 DISTANCES = {
-    "aitchison": "PCA de Aitchison (CLR) — recomendado",
+    "aitchison": "Aitchison PCA (CLR), recommended",
     "braycurtis": "PCoA — Bray-Curtis",
     "jaccard": "PCoA — Jaccard (presence/absence)",
     "weighted_unifrac": "PCoA — weighted UniFrac (requires a tree)",
@@ -130,10 +130,19 @@ def _pcoa(counts: np.ndarray, samples: list[str], metric: str, tree_path: Option
             )
         counts = counts[:, keep]
         features = [features[index] for index in keep]
-        kwargs = {"tree": tree, "otu_ids": features}
+        # scikit-bio 0.7 renamed the phylogenetic metrics' ``otu_ids=`` to ``taxa=``
+        # and rejects the old name ("taxa is required"), which broke UniFrac on any
+        # install that follows requirements.txt. Older releases only know otu_ids.
+        kwargs = {"tree": tree, "taxa": features}
 
     data = counts.astype(int) if metric == "jaccard" else counts.astype(float)
-    matrix = beta_diversity(metric, data, ids=samples, validate=True, **kwargs)
+    try:
+        matrix = beta_diversity(metric, data, ids=samples, validate=True, **kwargs)
+    except TypeError as exc:
+        if "taxa" not in kwargs or "taxa" not in str(exc):
+            raise
+        kwargs = {"tree": kwargs["tree"], "otu_ids": kwargs["taxa"]}
+        matrix = beta_diversity(metric, data, ids=samples, validate=True, **kwargs)
 
     # A degenerate matrix — every distance zero — has no axes to decompose, and skbio
     # divides by a zero eigenvalue sum and hands back NaN proportions. This happens for

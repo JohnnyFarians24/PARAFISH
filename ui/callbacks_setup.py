@@ -244,7 +244,7 @@ def register_callbacks(app: Any) -> None:
             html.Div(f"Recommended maximum: {limit}", className="status-pill"),
         ]
         if total and available:
-            pills.append(html.Div(f"RAM: {available / 1e9:.1f} GB livre de {total / 1e9:.1f} GB", className="status-pill"))
+            pills.append(html.Div(f"RAM: {available / 1e9:.1f} GB free of {total / 1e9:.1f} GB", className="status-pill"))
 
         children = [
             html.Div("Machine resources", className="card-title"),

@@ -835,6 +835,9 @@ def _reconcile_source_status(
 		key = str(entry.pop("key", "") or "").upper()
 		raw = entry.pop("raw", None)
 		log = entry.pop("log", None)
+		# A source that reports assignments outside records_by_asv (custom BLAST)
+		# passes its own count; popped always so it never reaches the CSV.
+		matched_hint = entry.pop("matched", None)
 		status = entry.get("status")
 		# Judge every source that ran, not only the ones claiming "ok". NCBI reports
 		# "ok if hits > 0 else no_hits" up front, so a remote BLAST that died outright
@@ -844,6 +847,11 @@ def _reconcile_source_status(
 		# has nothing to reconcile against.
 		if key and status != "skipped":
 			assigned = counts.get(key, 0)
+			if not assigned and matched_hint:
+				try:
+					assigned = int(matched_hint)
+				except (TypeError, ValueError):
+					assigned = 0
 			supported = SOURCE_SUPPORTED_MARKERS.get(key)
 			incompatible = bool(supported and marker_upper and marker_upper not in supported)
 			# With BLAST, zero hits legitimately produces a ZERO-BYTE table: the search ran,
@@ -1594,10 +1602,15 @@ def run_taxonomy_pipeline(
 				# all is a broken database or a BLAST that never ran, not an honest
 				# absence of matches. Reconciliation tells the two apart.
 				source_status.append({
-					"source": "Base customizada (BLAST)",
+					"source": "Custom database (BLAST)",
 					"status": "ok" if matched_n > 0 else "no_hits",
-					"detail": f"{matched_n}/{total_n} OTUs matched",
+					"detail": "best hit at >= 90% identity; shown in the custom comparison, not merged into the consensus",
 					"key": "CUSTOM",
+					# Custom BLAST is a standalone comparison: it never adds records to
+					# records_by_asv, so the reconciliation below cannot count its
+					# assignments there. Its own match count is the evidence instead —
+					# without it every successful custom BLAST was reported as no_hits.
+					"matched": matched_n,
 					"raw": custom_result.files.get("custom_blast_raw_tsv"),
 					# The log, not the raw table's size, decides failure vs absence: a
 					# clean blastn that matched nothing writes a 0-byte table, which the
@@ -1608,13 +1621,13 @@ def run_taxonomy_pipeline(
 			else:
 				metrics["custom_error"] = 1.0
 				log_lines.append(custom_result.error_message or "Custom BLAST failed")
-				source_status.append({"source": "Base customizada (BLAST)", "status": "failed", "detail": custom_result.error_message or "failed"})
+				source_status.append({"source": "Custom database (BLAST)", "status": "failed", "detail": custom_result.error_message or "failed"})
 		else:
 			custom_path = run_sintax(fasta_path, custom_db_path, sintax_cutoff, threads, output_dir=output_dir / "custom", prefix="custom_sintax")
 			files["custom_sintax_csv"] = custom_path
 			_merge_sintax("CUSTOM", custom_path)
 			status, detail = _classify_sintax_source(custom_path, output_dir / "custom" / "custom_sintax.log")
-			source_status.append({"source": "Base customizada (SINTAX)", "status": status, "detail": detail, "key": "CUSTOM", "raw": custom_path})
+			source_status.append({"source": "Custom database (SINTAX)", "status": status, "detail": detail, "key": "CUSTOM", "raw": custom_path})
 
 	if ncbi_config is not None:
 		ncbi_result = run_blast(fasta_path, ncbi_config, output_dir / "ncbi")

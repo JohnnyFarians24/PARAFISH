@@ -39,9 +39,11 @@ def run_fasttree(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOut
     log_path = output_dir / "fasttree.log"
 
     command = [FASTTREE_PATH, "-nt"]
-    if params.get("gtr", True):
+    # RunConfig stores these as ``fasttree_gtr`` / ``fasttree_gamma``; the bare keys are
+    # kept as a fallback for callers that pass them directly. Both default to on.
+    if params.get("fasttree_gtr", params.get("gtr", True)):
         command.append("-gtr")
-    if params.get("gamma", True):
+    if params.get("fasttree_gamma", params.get("gamma", True)):
         command.append("-gamma")
     if params.get("fastest", False):
         command.append("-fastest")

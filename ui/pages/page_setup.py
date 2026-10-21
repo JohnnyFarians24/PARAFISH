@@ -383,8 +383,14 @@ def _databases_card():
                                         value="lca",
                                         clearable=False,
                                     ),
-                                    _param_label("Species threshold (%)", "Minimum percent identity to assign at species level. Default: 97%."),
-                                    dcc.Input(id="setup-species-threshold", type="number", value=97, min=50, max=100, step=1, className="dash-input"),
+                                    # Not read by the pipeline: hidden, kept because Setup reads it as State.
+                                    html.Div(
+                                        [
+                                            _param_label("Species threshold (%)", "Minimum percent identity to assign at species level. Default: 97%."),
+                                            dcc.Input(id="setup-species-threshold", type="number", value=97, min=50, max=100, step=1, className="dash-input"),
+                                        ],
+                                        style={"display": "none"},
+                                    ),
                                 ],
                                 style={"display": "grid", "gap": "8px"},
                             )
@@ -429,16 +435,23 @@ def _phylo_card():
                         labelStyle={"display": "inline-block", "marginRight": "10px"},
                     ),
                     _advanced([
-                        _param_label("MAFFT", "Alignment strategy used before phylogenetic tree inference."),
-                        dcc.RadioItems(
-                            id="setup-mafft-mode",
-                            options=[
-                                {"label": "Auto", "value": "auto"},
-                                {"label": "Accurate", "value": "accurate"},
+                        # MAFFT always runs with --auto --adjustdirection; these two
+                        # controls were never read, so they are hidden rather than shown.
+                        html.Div(
+                            [
+                                _param_label("MAFFT", "Alignment strategy used before phylogenetic tree inference."),
+                                dcc.RadioItems(
+                                    id="setup-mafft-mode",
+                                    options=[
+                                        {"label": "Auto", "value": "auto"},
+                                        {"label": "Accurate", "value": "accurate"},
+                                    ],
+                                    value="auto",
+                                    className="radio-group",
+                                    labelStyle={"display": "inline-block", "marginRight": "10px"},
+                                ),
                             ],
-                            value="auto",
-                            className="radio-group",
-                            labelStyle={"display": "inline-block", "marginRight": "10px"},
+                            style={"display": "none"},
                         ),
                         _param_label("RAxML Bootstraps", "Number of bootstrap replicates used to assess branch support. Higher values improve precision but increase runtime. Recommended: 10-50 for testing, 100-500 for final analyses."),
                         dcc.Input(id="setup-raxml-bootstraps", type="number", min=10, max=1000, step=10, value=_RUN_DEFAULTS.phylo_params["bs_trees"], className="dash-input"),
@@ -447,6 +460,7 @@ def _phylo_card():
                             options=[{"label": "Adjust direction", "value": "on"}],
                             value=["on"],
                             className="checkbox-group",
+                            style={"display": "none"},
                         ),
                     ]),
                 ],
@@ -465,8 +479,14 @@ def _run_button():
                 [
                     _param_label("Threads", "Number of CPU threads to use per tool. Match to your machine's available cores."),
                     dcc.Input(id="setup-threads", type="number", value=8, min=1, max=128, className="dash-input"),
-                    _param_label("Workers", "Number of parallel sample workers. Higher = more RAM usage. Recommended: 2–4."),
-                    dcc.Input(id="setup-workers", type="number", value=4, min=1, max=64, className="dash-input"),
+                    # Samples run one after the other; "Workers" was stored and never read.
+                    html.Div(
+                        [
+                            _param_label("Workers", "Number of parallel sample workers. Higher = more RAM usage. Recommended: 2–4."),
+                            dcc.Input(id="setup-workers", type="number", value=4, min=1, max=64, className="dash-input"),
+                        ],
+                        style={"display": "none"},
+                    ),
                 ],
                 className="control-row",
             ),

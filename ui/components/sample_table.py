@@ -62,7 +62,7 @@ def render_sample_table(samples: list[dict] | None, selectable: bool = False, ru
 				html.Td(sample.get("display_label", "")),
 				html.Td(_mode_badge(sample.get("mode", "SE"))),
 				html.Td(
-					_marker_badge(effective_marker, "marcador da run, resolvido a partir do preset de primers")
+					_marker_badge(effective_marker, "run marker, resolved from the primer preset")
 					if effective_marker
 					else _marker_badge(sample.get("marker"), "inferred from the file name")
 				),

@@ -75,7 +75,15 @@ def run_raxml(aligned_fasta: Path, output_dir: Path, params: Dict) -> StepOutput
 
     bs_suffix = "supportFBP" if bs_metric == "fbp" else "supportTBE"
     best_tree = output_dir / "raxml.raxml.bestTree"
+    # RAxML-NG names the support tree ``*.support`` for the default metric and
+    # ``*.supportFBP``/``*.supportTBE`` only in some versions and modes. Record the
+    # file that exists, so the Phylo page's download link does not point at nothing.
     support_tree = output_dir / f"raxml.raxml.{bs_suffix}"
+    if not support_tree.exists():
+        for name in ("raxml.raxml.support", "raxml.raxml.supportFBP", "raxml.raxml.supportTBE"):
+            if (output_dir / name).exists():
+                support_tree = output_dir / name
+                break
     bootstraps = output_dir / "raxml.raxml.bootstraps"
     best_model = output_dir / "raxml.raxml.bestModel"
 

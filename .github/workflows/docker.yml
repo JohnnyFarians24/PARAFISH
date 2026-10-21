@@ -1,0 +1,85 @@
+# Validates the PARAFISH Docker image on GitHub's servers (no local Docker needed).
+# Builds the image, lists the tool versions inside it, runs the test suite inside it,
+# runs the pipeline on the fixture if fixtures/ is in the repository, and checks that
+# the web app answers over HTTP. All logs are uploaded as the artifact "docker-ci-logs".
+name: docker-validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Dockerfile"
+      - "environment.yml"
+      - "requirements.txt"
+      - ".github/workflows/docker.yml"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: |
+          set -o pipefail
+          mkdir -p ci_logs
+          /usr/bin/time -v docker build -t parafish:ci . 2>&1 | tee ci_logs/01_build.log
+          docker image ls parafish:ci | tee -a ci_logs/01_build.log
+
+      - name: Tool versions inside the image
+        run: |
+          docker run --rm parafish:ci bash -c '
+            echo "python: $(python --version 2>&1)"
+            echo "fastqc: $(fastqc --version 2>&1 | head -1)"
+            echo "vsearch: $(vsearch --version 2>&1 | head -1)"
+            echo "cutadapt: $(cutadapt --version 2>&1)"
+            echo "mafft: $(mafft --version 2>&1 | head -1)"
+            echo "raxml-ng: $(raxml-ng --version 2>&1 | grep -m1 RAxML)"
+            echo "blastn: $(blastn -version 2>&1 | head -1)"
+            echo "pear: $(pear -h 2>&1 | grep -m1 -i "PEAR v")"
+            echo "FastTree: $(FastTree 2>&1 | head -1)"
+            echo "java: $(java -version 2>&1 | head -1)"
+            echo "dada2: $(Rscript -e "cat(as.character(packageVersion(\"dada2\")))" 2>&1)"
+            echo "trimmomatic jar: $(ls -l /opt/Trimmomatic/ 2>&1)"
+            python -c "import dash, skbio, pandas; print(\"dash\", dash.__version__, \"| scikit-bio\", skbio.__version__, \"| pandas\", pandas.__version__)"
+          ' 2>&1 | tee ci_logs/02_versions.txt
+
+      - name: Test suite inside the image
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          docker run --rm parafish:ci bash -c 'pip install -q pytest && python -m pytest -q -p no:cacheprovider' 2>&1 | tee ci_logs/03_pytest.txt
+
+      - name: Pipeline on the fixture inside the image (only if fixtures/ is committed)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          if [ -f fixtures/APTL64B_R1.fastq.gz ]; then
+            docker run --rm parafish:ci bash -c 'python scripts/run_pipeline.py --out /tmp/ci_run --stages qc,preprocess,analysis,phylo --db-sources ""' 2>&1 | tee ci_logs/04_pipeline.txt
+          else
+            echo "fixtures/ not in the repository: pipeline step skipped" | tee ci_logs/04_pipeline.txt
+          fi
+
+      - name: Web app answers over HTTP
+        run: |
+          docker run -d --name pf -e HOST=0.0.0.0 -p 8050:8050 parafish:ci
+          ok=0
+          for i in $(seq 1 36); do
+            if curl -sf -o /dev/null http://localhost:8050/; then ok=1; break; fi
+            sleep 5
+          done
+          docker logs pf > ci_logs/05_app.log 2>&1 || true
+          if [ "$ok" = 1 ]; then echo "APP OK: HTTP 200 on port 8050" | tee -a ci_logs/05_app.log; else echo "APP FAILED to answer" | tee -a ci_logs/05_app.log; exit 1; fi
+          docker rm -f pf
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-ci-logs
+          path: ci_logs/

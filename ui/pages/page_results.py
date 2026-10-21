@@ -138,9 +138,15 @@ def layout():
             ),
 
             # ── Bloco F — Tables (Layer 2) ───────────────────────────
-            details("Alpha diversity per sample", dcc.Loading(html.Div(id="results-alpha-table"), type="dot")),
-            details("Taxonomy table (per-feature consensus)", dcc.Loading(html.Div(id="results-taxonomy-table"), type="dot")),
-            details("Detailed read tracking", dcc.Loading(html.Div(id="results-tracking-table"), type="dot")),
+            # Three sections with no callback behind them: hidden until one fills them.
+            html.Div(
+                [
+                    details("Alpha diversity per sample", dcc.Loading(html.Div(id="results-alpha-table"), type="dot")),
+                    details("Taxonomy table (per-feature consensus)", dcc.Loading(html.Div(id="results-taxonomy-table"), type="dot")),
+                    details("Detailed read tracking", dcc.Loading(html.Div(id="results-tracking-table"), type="dot")),
+                ],
+                style={"display": "none"},
+            ),
             details("Between-sample comparison", html.Div(id="results-comparison")),
             details(
                 "Target taxa (parasites)",

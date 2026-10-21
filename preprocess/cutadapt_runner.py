@@ -80,6 +80,24 @@ def resolve_primers(config: RunConfig) -> Tuple[str, str]:
     return "", ""
 
 
+def auto_without_pair(config: RunConfig) -> str:
+    """The marker when "auto" was asked for but no standard pair exists for it, else ``""``.
+
+    A COI run left on "auto" used to pass through with primers intact and no word in the
+    log, which looked identical to a run whose primers had been removed.
+    """
+    params = getattr(config, "vsearch_params", {}) or {}
+    if str(params.get("primer_fwd") or "").strip() or str(params.get("primer_rev") or "").strip():
+        return ""
+    raw_preset = params.get("primer_preset")
+    preset = AUTO_PRESET if raw_preset is None else str(raw_preset).strip()
+    if preset != AUTO_PRESET or _marker_preset(config):
+        return ""
+    markers = {str(getattr(sample.marker, "value", sample.marker) or "").upper() for sample in (getattr(config, "samples", None) or [])}
+    markers.discard("")
+    return markers.pop() if len(markers) == 1 else ""
+
+
 def cutadapt_available() -> bool:
     return bool(CUTADAPT_PATH and (shutil.which(CUTADAPT_PATH) or Path(CUTADAPT_PATH).is_file()))
 
@@ -119,6 +137,13 @@ def run_cutadapt(sample: Sample, config: RunConfig) -> StepOutput:
     """
     forward, reverse = resolve_primers(config)
     if not (forward or reverse):
+        marker = auto_without_pair(config)
+        if marker:
+            return _passthrough(
+                sample,
+                f"no automatic primer pair for {marker}: primers were not removed. "
+                f"Choose a primer preset or enter the primers in Setup.",
+            )
         return _passthrough(sample)
     if not cutadapt_available():
         return _passthrough(

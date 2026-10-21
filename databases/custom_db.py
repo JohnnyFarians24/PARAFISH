@@ -206,7 +206,7 @@ def detect_fasta_kind(path: Path) -> tuple[str, str]:
     if missing_tax == 0:
         # SINTAX reference: duplicated ids break VSEARCH, so reject them.
         if duplicate:
-            return "", f"ID duplicado na base customizada: '{duplicate}'."
+            return "", f"Duplicate ID in the custom database: '{duplicate}'."
         return "sintax", ""
     # Plain reference for BLAST. Duplicate ids are tolerable here (makeblastdb
     # renames them), so only warn via the returned kind.
@@ -367,7 +367,7 @@ def run_custom_blast(
         log_path.write_text(message, encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
     except subprocess.TimeoutExpired:
-        message = f"makeblastdb excedeu o timeout de {MAKEBLASTDB_TIMEOUT_SEC}s."
+        message = f"makeblastdb exceeded the timeout of {MAKEBLASTDB_TIMEOUT_SEC}s."
         log_path.write_text(message, encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
 
@@ -403,7 +403,7 @@ def run_custom_blast(
     result = run_tool(command, timeout=BLAST_TIMEOUT_SEC, failure_signatures=BLAST_FAILURE_SIGNATURES)
     log_lines.append(result.output)
     if result.timed_out:
-        message = f"blastn excedeu o timeout de {BLAST_TIMEOUT_SEC}s."
+        message = f"blastn exceeded the timeout of {BLAST_TIMEOUT_SEC}s."
         log_path.write_text(message, encoding="utf-8")
         return StepOutput(step_name="custom_blast", success=False, files={"log": log_path}, log=log_path, error_message=message)
     if not result.ok:

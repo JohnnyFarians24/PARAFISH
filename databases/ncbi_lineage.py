@@ -141,7 +141,7 @@ def resolve_lineages(
         except Exception as exc:  # network, HTTP, parse — all best-effort
             warnings.append(
                 f"NCBI lineage not resolved for {len(missing) - start} taxid(s) "
-                f"(offline ou erro de rede?): {str(exc)[:200]}"
+                f"(offline or network error?): {str(exc)[:200]}"
             )
             break
         for record in records:
