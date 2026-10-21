@@ -9,7 +9,12 @@ ENV PYTHONUNBUFFERED=1
 ENV HOST=0.0.0.0
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# The base image is Debian 11 (bullseye). Its LTS ended in August 2026 and its packages
+# moved to archive.debian.org; the regular mirrors now answer 404. bullseye-security was
+# not archived, so it is dropped.
+RUN printf 'deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian bullseye-updates main\n' > /etc/apt/sources.list \
+    && rm -f /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources \
+    && apt-get -o Acquire::Check-Valid-Until=false update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     git \
