@@ -170,3 +170,23 @@ class SintaxSingleThreadTests(unittest.TestCase):
         command = captured["command"]
         self.assertEqual(command[command.index("--threads") + 1], "1")
         self.assertIn("--randseed", command)
+
+
+class CommitInDockerImageTests(unittest.TestCase):
+    """The Docker image has no .git folder, so every run record said commit "unknown"."""
+
+    def test_commit_comes_from_the_build_variable_without_git(self):
+        from core import export
+
+        with mock.patch.dict("os.environ", {"PARAFISH_COMMIT": "a" * 40}), \
+                mock.patch.object(export.subprocess, "run", side_effect=FileNotFoundError("git")):
+            self.assertEqual(export.git_commit(), "a" * 40)
+
+    def test_without_git_or_variable_it_is_unknown(self):
+        from core import export
+
+        with mock.patch.dict("os.environ", {}, clear=False), \
+                mock.patch.object(export.subprocess, "run", side_effect=FileNotFoundError("git")):
+            import os
+            os.environ.pop("PARAFISH_COMMIT", None)
+            self.assertEqual(export.git_commit(), "unknown")

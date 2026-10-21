@@ -8,6 +8,10 @@ ENV PYTHONUNBUFFERED=1
 # Dash listens on 127.0.0.1 unless HOST is set, which is unreachable from outside the container.
 ENV HOST=0.0.0.0
 ENV DEBIAN_FRONTEND=noninteractive
+# The image has no .git folder; the commit is passed at build time for the run record
+# (docker build --build-arg PARAFISH_COMMIT=$(git rev-parse HEAD) .).
+ARG PARAFISH_COMMIT=unknown
+ENV PARAFISH_COMMIT=$PARAFISH_COMMIT
 
 # The base image is Debian 11 (bullseye). Its LTS ended in August 2026 and its packages
 # moved to archive.debian.org; the regular mirrors now answer 404. bullseye-security was

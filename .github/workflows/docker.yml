@@ -37,7 +37,7 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p ci_logs
-          /usr/bin/time -v docker build -t parafish:ci . 2>&1 | tee ci_logs/01_build.log
+          /usr/bin/time -v docker build --build-arg PARAFISH_COMMIT=${{ github.sha }} -t parafish:ci . 2>&1 | tee ci_logs/01_build.log
           docker image ls parafish:ci | tee -a ci_logs/01_build.log
 
       - name: Tool versions inside the image

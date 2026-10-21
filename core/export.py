@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import subprocess
 import zipfile
 from datetime import datetime, timezone
@@ -121,16 +122,21 @@ _HASH_CHUNK = 1024 * 1024
 
 
 def git_commit(repo_root=None) -> str:
-    """The commit of the code that is running, or ``"unknown"`` (no git, no repository)."""
+    """The commit of the code that is running, or ``"unknown"`` (no git, no repository).
+
+    A Docker image carries no ``.git`` folder, so there the commit comes from the
+    ``PARAFISH_COMMIT`` variable set when the image is built.
+    """
     root = Path(repo_root) if repo_root else Path(__file__).resolve().parent.parent
+    fallback = (os.environ.get("PARAFISH_COMMIT") or "").strip() or "unknown"
     try:
         completed = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=str(root), capture_output=True, text=True, timeout=10, check=True
         )
     except Exception:
-        return "unknown"
+        return fallback
     commit = (completed.stdout or "").strip()
-    return commit or "unknown"
+    return commit or fallback
 
 
 def _fingerprint_cache_path(path: Path) -> Path:
