@@ -1158,7 +1158,7 @@ def read_funnel_figure(steps: list[dict]) -> "go.Figure":
         annotations.append(f"−{loss * 100:.0f}%" if loss > 0.005 else "")
 
     text = [
-        f"{value:,.0f}<br>{value / baseline * 100:.0f}% do input" + (f"<br><b>{note}</b>" if note else "")
+        f"{value:,.0f}<br>{value / baseline * 100:.0f}% of input" + (f"<br><b>{note}</b>" if note else "")
         for value, note in zip(values, annotations)
     ]
 

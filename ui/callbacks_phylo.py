@@ -218,8 +218,8 @@ def register_callbacks(app: Any) -> None:
                 "status": "failure",
                 "updated_at": utc_now_iso(),
                 "outputs": {},
-                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"FASTA vazio: {fasta_path}"}],
-                "error_message": f"FASTA vazio: {fasta_path}",
+                "log_lines": [{"ts": utc_now_iso(), "level": "ERR", "msg": f"Empty FASTA: {fasta_path}"}],
+                "error_message": f"Empty FASTA: {fasta_path}",
             }
             return _build_phylo_summary(samples_data=samples_data, step_outputs={"analysis": analysis_record, "databases": databases_record, "phylo": record}), record
 
@@ -558,13 +558,15 @@ def register_phylo_kpis(app) -> None:
         metrics = {k: v for k, v in (record.get("metrics_files") or {}).items() if isinstance(v, str) and Path(v).exists()}
 
         align_len, support_median = "—", "—"
-        alignment = metrics.get("otu.alignment_csv") or metrics.get("alignment_csv")
+        # The keys written by phylo_metrics.build_metrics_from_files. The card used to look
+        # up alignment_csv and support_csv, which no stage writes, so it always showed "—".
+        alignment = metrics.get("otu.alignment_columns_csv") or metrics.get("alignment_columns_csv")
         if alignment:
             try:
                 align_len = f"{len(pd.read_csv(alignment)):,} col"
             except Exception:
                 pass
-        support = metrics.get("otu.support_csv") or metrics.get("support_csv")
+        support = metrics.get("otu.branch_support_csv") or metrics.get("branch_support_csv")
         if support:
             try:
                 frame = pd.read_csv(support)
@@ -575,6 +577,6 @@ def register_phylo_kpis(app) -> None:
 
         return (
             card(tips, "Sequences in the tree"),
-            card(align_len, "Comprimento do alinhamento"),
-            card(support_median, "Suporte bootstrap (mediana)"),
+            card(align_len, "Alignment length"),
+            card(support_median, "Bootstrap support (median)"),
         )

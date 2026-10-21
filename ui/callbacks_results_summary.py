@@ -308,11 +308,11 @@ _EXPORTS = [
     ("Rarefaction curves", "analysis/metrics/otu/rarefaction.csv", "the Analysis stage did not run"),
     ("Relative composition (genus, %)", "databases/otu/taxa_tables/taxa_table_genus_relative.csv", _NO_TAXONOMY),
     ("Relative composition (species, %)", "databases/otu/taxa_tables/taxa_table_species_relative.csv", _NO_TAXONOMY),
-    ("Tabela BIOM (QIIME/phyloseq)", "databases/otu/table.biom", _NO_TAXONOMY),
+    ("BIOM table (QIIME/phyloseq)", "databases/otu/table.biom", _NO_TAXONOMY),
     # The link gives the script alone; its three tables are siblings on disk and travel
     # in the run .zip. The label says "script" rather than "script + tabelas" because
     # the download is the script — promising the tables in a single click would be a lie.
-    ("phyloseq (script R, tabelas no .zip)", "databases/otu/phyloseq/load_phyloseq.R", _NO_TAXONOMY),
+    ("phyloseq (R script, tables in the .zip)", "databases/otu/phyloseq/load_phyloseq.R", _NO_TAXONOMY),
     # The phylo artifacts sit under their runner's subdir (MAFFT/RAxML), not flat in the
     # set dir — the previous ``phylo/otu/tree.nwk`` never existed, so a completed tree
     # always read as "did not run". These paths match the default HYBRID mode the golden
@@ -349,7 +349,7 @@ def _funnel_steps(run_dir: Path, state: dict) -> list[dict]:
         steps.append({"label": "Clustered (OTU/ASV)", "reads": float(clustered)})
     classified = species_classified_total(run_dir)
     if classified:
-        steps.append({"label": "Classificadas", "reads": float(classified)})
+        steps.append({"label": "Classified", "reads": float(classified)})
 
     return steps if len(steps) >= 2 else []
 
@@ -533,7 +533,7 @@ def _preprocess_card(run_dir, state, href, status):
         value = f"{frame['pct_surviving'].mean():.0f}%"
         if "pct_assembled" in frame.columns:
             hint = f"mean assembly {frame['pct_assembled'].mean():.0f}%"
-    return kpi(value, "Preprocess — reads retidas", hint=hint, href=href)
+    return kpi(value, "Preprocess — reads kept", hint=hint, href=href)
 
 
 def _analysis_card(run_dir, state, href, status):

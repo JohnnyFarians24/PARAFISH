@@ -190,3 +190,20 @@ class CommitInDockerImageTests(unittest.TestCase):
             import os
             os.environ.pop("PARAFISH_COMMIT", None)
             self.assertEqual(export.git_commit(), "unknown")
+
+
+class PhyloCardKeysTests(unittest.TestCase):
+    """The Phylo page cards looked up metric keys that no stage writes and always showed "—"."""
+
+    def test_cards_use_the_keys_the_phylo_stage_writes(self):
+        import inspect
+        from phylo import phylo_metrics
+        import ui.callbacks_phylo as cp
+
+        written = inspect.getsource(phylo_metrics.build_metrics_from_files) + inspect.getsource(phylo_metrics)
+        source = inspect.getsource(cp)
+        for key in ("alignment_columns_csv", "branch_support_csv"):
+            self.assertIn(f'"{key}"', written)
+            self.assertIn(f'"otu.{key}"', source)
+        self.assertNotIn('"alignment_csv"', source)
+        self.assertNotIn('"support_csv"', source)

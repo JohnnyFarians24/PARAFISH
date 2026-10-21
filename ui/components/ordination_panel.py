@@ -63,7 +63,7 @@ def panel(prefix: str, *, compact: bool = False, default_metric: str = "aitchiso
             [
                 dcc.Loading(html.Div(id=f"{prefix}-plot"), type="dot"),
                 html.Div(
-                    html.A("Controlos completos, biplot e PERMANOVA em Analysis →", href="/analysis", className="mini-note"),
+                    html.A("Full controls, biplot and PERMANOVA in Analysis →", href="/analysis", className="mini-note"),
                     style={"marginTop": "6px"},
                 ),
             ]
