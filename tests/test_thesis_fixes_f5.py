@@ -262,3 +262,27 @@ class UnifracUnrootedTreeTests(unittest.TestCase):
             tree.write_text("(OTU1:0.1,OTU2:0.2,(OTU3:0.4,(OTU4:0.1,OTU5:0.2):0.5):0.3);\n")
             result = ordinate(counts, samples, features, metric="weighted_unifrac", tree_path=tree)
         self.assertEqual(len(result["coordinates"] if "coordinates" in result else result["samples"]), 6)
+
+
+class TrimmomaticLocaleTests(unittest.TestCase):
+    """On a Portuguese-locale server Trimmomatic writes "(92,92%)" and no sample was parsed."""
+
+    LINE = ("Input Read Pairs: 53469 Both Surviving: 49685 (92,92%) Forward Only Surviving: 1492 (2,79%) "
+            "Reverse Only Surviving: 1567 (2,93%) Dropped: 725 (1,36%)\nTrimmomaticPE: Completed successfully\n")
+
+    def test_decimal_comma_is_parsed(self):
+        from preprocess.preprocess_metrics import parse_trimmomatic_log
+
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "trimlog.txt"
+            log.write_text(self.LINE, encoding="utf-8")
+            out = parse_trimmomatic_log(log)
+        self.assertEqual((out["input_reads"], out["trimmed_reads"], out["dropped_reads"]), (53469, 49685, 725))
+
+    def test_decimal_point_still_parsed(self):
+        from preprocess.preprocess_metrics import parse_trimmomatic_log
+
+        with tempfile.TemporaryDirectory() as d:
+            log = Path(d) / "trimlog.txt"
+            log.write_text(self.LINE.replace(",", "."), encoding="utf-8")
+            self.assertEqual(parse_trimmomatic_log(log)["trimmed_reads"], 49685)

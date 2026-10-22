@@ -62,13 +62,16 @@ TRACKING_COLUMNS = [
     "pct_surviving",
 ]
 
+# Trimmomatic is Java and formats the percentages in the machine's locale: a server set
+# to Portuguese writes "(92,92%)", and with only "." accepted every sample was skipped
+# and the read-tracking table came out empty.
 _TRIM_PE = re.compile(
-    r"Input Read Pairs:\s*(\d+)\s+Both Surviving:\s*(\d+)\s*\([\d.]+%\)"
-    r"\s+Forward Only Surviving:\s*(\d+)\s*\([\d.]+%\)"
-    r"\s+Reverse Only Surviving:\s*(\d+)\s*\([\d.]+%\)"
+    r"Input Read Pairs:\s*(\d+)\s+Both Surviving:\s*(\d+)\s*\([\d.,]+%\)"
+    r"\s+Forward Only Surviving:\s*(\d+)\s*\([\d.,]+%\)"
+    r"\s+Reverse Only Surviving:\s*(\d+)\s*\([\d.,]+%\)"
     r"\s+Dropped:\s*(\d+)"
 )
-_TRIM_SE = re.compile(r"Input Reads:\s*(\d+)\s+Surviving:\s*(\d+)\s*\([\d.]+%\)\s+Dropped:\s*(\d+)")
+_TRIM_SE = re.compile(r"Input Reads:\s*(\d+)\s+Surviving:\s*(\d+)\s*\([\d.,]+%\)\s+Dropped:\s*(\d+)")
 
 # vsearch --fastq_filter: "82113 sequences kept (of which 0 truncated), 12544 sequences discarded."
 _FILTER_KEPT = re.compile(r"(\d+)\s+sequences kept\s*\(of which \d+ truncated\),\s*(\d+)\s+sequences discarded")
