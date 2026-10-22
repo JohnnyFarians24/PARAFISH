@@ -120,6 +120,11 @@ def _pcoa(counts: np.ndarray, samples: list[str], metric: str, tree_path: Option
         from skbio import TreeNode
 
         tree = TreeNode.read(str(tree_path))
+        # FastTree and RAxML-NG write unrooted trees (three children at the base), and
+        # scikit-bio's UniFrac rejects them ("The tree must be rooted"). Midpoint rooting
+        # is what the Phylo page already uses for Faith's PD.
+        if len(tree.children) != 2:
+            tree = tree.root_at_midpoint()
         # UniFrac walks the tree, so every feature in the table must be a tip on it.
         tips = {tip.name for tip in tree.tips()}
         keep = [index for index, feature in enumerate(features) if feature in tips]

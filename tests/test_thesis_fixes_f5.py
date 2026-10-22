@@ -243,3 +243,22 @@ class GenusOrDeeperCountTests(unittest.TestCase):
 
         rows = [row(species="Gadus_morhua"), row(genus="Gadus"), row(), row(genus="unclassified")]
         self.assertEqual(count_to_genus_or_deeper(rows), 2)
+
+
+class UnifracUnrootedTreeTests(unittest.TestCase):
+    """FastTree/RAxML-NG trees are unrooted; UniFrac raised "The tree must be rooted"."""
+
+    def test_unrooted_tree_from_the_tree_builders_ordinates(self):
+        from analysis.ordination import ordinate
+
+        rng = np.random.default_rng(2)
+        a = rng.multinomial(2_000, [0.4, 0.3, 0.2, 0.05, 0.05], size=3)
+        b = rng.multinomial(2_000, [0.05, 0.05, 0.2, 0.3, 0.4], size=3)
+        counts = np.vstack([a, b]).astype(float)
+        samples = ["A0", "A1", "A2", "B0", "B1", "B2"]
+        features = [f"OTU{i}" for i in range(1, 6)]
+        with tempfile.TemporaryDirectory() as d:
+            tree = Path(d) / "tree.nwk"
+            tree.write_text("(OTU1:0.1,OTU2:0.2,(OTU3:0.4,(OTU4:0.1,OTU5:0.2):0.5):0.3);\n")
+            result = ordinate(counts, samples, features, metric="weighted_unifrac", tree_path=tree)
+        self.assertEqual(len(result["coordinates"] if "coordinates" in result else result["samples"]), 6)
