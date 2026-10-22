@@ -174,6 +174,11 @@ def _run_target_note(project_store, samples_data):
 	return html.Div([html.Span("You are about to run project "), html.B(str(name)), html.Span(f" · {count} sample(s)")], className="mini-note")
 
 
+def _was_clicked(triggered) -> bool:
+	"""True only for a real click: a re-rendered button reports n_clicks None (or 0)."""
+	return any(bool(item.get("value")) for item in (triggered or []))
+
+
 def register_callbacks(app: Any) -> None:
 
 	@app.callback(
@@ -554,6 +559,12 @@ def register_callbacks(app: Any) -> None:
 	def _load_recent(n_clicks_list, current_store):
 		triggered = ctx.triggered_id
 		if not isinstance(triggered, dict) or triggered.get("type") != "btn-load-recent":
+			return no_update, no_update, no_update
+		# The table is re-rendered on every change of store-project, and Dash fires this
+		# callback for the new buttons with n_clicks None. Acting on that switched the
+		# active project to whichever button came first (and replaced the samples with
+		# that project's), so a project just created or selected was silently undone.
+		if not _was_clicked(ctx.triggered):
 			return no_update, no_update, no_update
 		proj_id = triggered.get("index")
 		store = current_store or {"active_id": None, "projects": {}}

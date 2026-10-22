@@ -207,3 +207,23 @@ class PhyloCardKeysTests(unittest.TestCase):
             self.assertIn(f'"otu.{key}"', source)
         self.assertNotIn('"alignment_csv"', source)
         self.assertNotIn('"support_csv"', source)
+
+
+class LoadRecentProjectTests(unittest.TestCase):
+    """Re-rendering the recent-projects table fired "Load" with n_clicks None and
+    switched the active project back to the first one listed."""
+
+    def test_rerendered_buttons_are_not_a_click(self):
+        from ui.callbacks_project import _was_clicked
+
+        rerender = [
+            {"prop_id": '{"index":"proj_a","type":"btn-load-recent"}.n_clicks', "value": None},
+            {"prop_id": '{"index":"proj_b","type":"btn-load-recent"}.n_clicks', "value": None},
+        ]
+        self.assertFalse(_was_clicked(rerender))
+        self.assertFalse(_was_clicked([]))
+
+    def test_a_real_click_loads(self):
+        from ui.callbacks_project import _was_clicked
+
+        self.assertTrue(_was_clicked([{"prop_id": '{"index":"proj_b","type":"btn-load-recent"}.n_clicks', "value": 1}]))
