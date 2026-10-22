@@ -78,6 +78,11 @@ def deepest_consensus_rank(row: dict) -> str:
     return "unassigned"
 
 
+def count_to_genus_or_deeper(rows) -> int:
+    """Features whose consensus reached genus or species, as in the resolution table."""
+    return sum(1 for row in rows if deepest_consensus_rank(row) in ("genus", "species"))
+
+
 # ── Taxonomic resolution ─────────────────────────────────────────────────
 
 

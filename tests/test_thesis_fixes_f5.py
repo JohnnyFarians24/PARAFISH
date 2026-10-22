@@ -227,3 +227,19 @@ class LoadRecentProjectTests(unittest.TestCase):
         from ui.callbacks_project import _was_clicked
 
         self.assertTrue(_was_clicked([{"prop_id": '{"index":"proj_b","type":"btn-load-recent"}.n_clicks', "value": 1}]))
+
+
+class GenusOrDeeperCountTests(unittest.TestCase):
+    """The Databases pill and the Results card counted non-empty genus cells, so a run
+    with 7 of 11 OTUs at genus or species was reported as 100% (and 11) classified."""
+
+    def test_counts_follow_the_deepest_rank(self):
+        from databases.database_metrics import count_to_genus_or_deeper
+
+        def row(genus="", species="", kingdom="Eukaryota"):
+            return {"Consensus_Kingdom": kingdom, "Consensus_Phylum": "", "Consensus_Class": "",
+                    "Consensus_Order": "", "Consensus_Family": "", "Consensus_Genus": genus,
+                    "Consensus_Species": species}
+
+        rows = [row(species="Gadus_morhua"), row(genus="Gadus"), row(), row(genus="unclassified")]
+        self.assertEqual(count_to_genus_or_deeper(rows), 2)

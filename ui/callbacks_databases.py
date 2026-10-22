@@ -28,7 +28,7 @@ from ui.runtime_state import decode_upload_content, latest_run_dir, resolve_proj
 _CONSENSUS_HEADERS = {
     "feature_id": "ID",
     "ASV_ID": "ID",
-    "feature_type": "Tipo",
+    "feature_type": "Type",
     "Best_Identity": "% identity",
     "Best_Coverage": "% coverage",
     "Best_Source": "Source",
@@ -953,12 +953,14 @@ def register_callbacks(app: Any) -> None:
             except Exception as exc:
                 children.append(html.Div(f"Consensus table unavailable: {exc}", className="empty-state-sub"))
             else:
-                classified = 0
-                if "Consensus_Genus" in frame.columns:
-                    classified = int(frame["Consensus_Genus"].astype(str).str.strip().replace("nan", "").astype(bool).sum())
+                from databases.database_metrics import count_to_genus_or_deeper
+
+                # Same rule as the "Taxonomic resolution" table below: the deepest rank
+                # the consensus reached. Counting non-empty genus cells disagreed with it.
+                classified = count_to_genus_or_deeper(frame.fillna("").astype(str).to_dict("records"))
                 pills = [
                     html.Div(f"{len(frame)} {noun}s", className="status-pill"),
-                    html.Div(f"{classified} classified to genus", className="status-pill"),
+                    html.Div(f"{classified} classified to genus or species", className="status-pill"),
                 ]
                 if "Reliability" in frame.columns:
                     high = int((frame["Reliability"].astype(str) == "high").sum())

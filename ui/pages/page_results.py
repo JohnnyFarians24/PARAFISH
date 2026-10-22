@@ -66,7 +66,7 @@ def layout():
                 [
                     html.Div("End-to-end read funnel", className="card-title"),
                     html.Div(
-                        "Every read, from raw FASTQ to classified feature. A large drop at a single "
+                        "Every read, from primer removal to classified feature. A large drop at a single "
                         "step is the first place to investigate — steps that lose more than 20% are shown in red "
                         "(except the initial quality filter, where losing reads is the point).",
                         className="mini-note",

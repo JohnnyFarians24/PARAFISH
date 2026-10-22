@@ -31,7 +31,7 @@ def controls(prefix: str, *, default_metric: str = "aitchison"):
             ),
             html.Div(
                 [
-                    html.Label("Colorir por", className="mini-note"),
+                    html.Label("Colour by", className="mini-note"),
                     dcc.Dropdown(id=f"{prefix}-colour", options=[], value="group", clearable=False),
                 ],
                 style={"flex": "1", "minWidth": "160px"},

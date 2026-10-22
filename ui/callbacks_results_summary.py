@@ -332,7 +332,7 @@ def _funnel_steps(run_dir: Path, state: dict) -> list[dict]:
     frame = _read_csv(tracking) if tracking else None
     if frame is not None and not frame.empty:
         for column, label in (
-            ("input_reads", "Input"),
+            ("input_reads", "Primers removed"),
             ("trimmed_reads", "After trimming"),
             ("assembled_reads", "Merged (PEAR)"),
         ):
@@ -522,7 +522,7 @@ def _qc_card(run_dir, state, href, status):
             hint = f"{bad} modules in warn/fail"
         else:
             value = f"{len(overview)} files"
-    return kpi(value, "QC — pass rate", hint=hint, href=href)
+    return kpi(value, "QC — FastQC modules passed", hint=hint, href=href)
 
 
 def _preprocess_card(run_dir, state, href, status):
@@ -567,15 +567,16 @@ def _databases_card(run_dir, state, href, status):
     frame = _read_csv(consensus) if consensus.exists() else None
     value, hint = "—", None
     if frame is not None and not frame.empty and "Consensus_Genus" in frame.columns:
-        genus = frame["Consensus_Genus"].astype(str).str.strip()
-        named = (genus != "") & (genus.str.lower() != "nan")
-        value = f"{int(named.sum()) / len(frame) * 100:.0f}%"
+        from databases.database_metrics import count_to_genus_or_deeper
+
+        named = count_to_genus_or_deeper(frame.fillna("").astype(str).to_dict("records"))
+        value = f"{named / len(frame) * 100:.0f}%"
         conflicts = run_dir / "databases" / "otu" / "conflict_report.csv"
         if conflicts.exists():
             report = _read_csv(conflicts)
             if report is not None:
                 hint = f"{len(report)} conflicts between sources"
-    return kpi(value, "Databases — classified to genus", hint=hint, href=href)
+    return kpi(value, "Databases — classified to genus or species", hint=hint, href=href)
 
 
 def _phylo_card(run_dir, state, href, status):

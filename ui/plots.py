@@ -1172,7 +1172,7 @@ def read_funnel_figure(steps: list[dict]) -> "go.Figure":
             hovertemplate="%{x}<br>%{y:,.0f} reads<extra></extra>",
         )
     )
-    _theme(fig, height=400, title="Read funnel — from FASTQ to classified feature")
+    _theme(fig, height=400, title="Read funnel — from primer removal to classified feature")
     fig.update_yaxes(title_text="Reads")
     # Headroom for the outside labels, which otherwise clip at the top.
     if values:

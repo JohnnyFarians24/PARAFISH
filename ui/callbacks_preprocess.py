@@ -152,9 +152,12 @@ def register_callbacks(app: Any) -> None:
         columns = [
             {"name": "Sample", "id": "sample"},
             {"name": "Mode", "id": "mode"},
-            {"name": "Input", "id": "input_reads", "type": "numeric", "format": {"specifier": ","}},
+            # cutadapt runs first and drops pairs without both primers, so the reads
+            # Trimmomatic receives (input_reads) are fewer than those with the primer.
+            # Labelled "Input" and shown first, the column read as the raw count.
             {"name": "With primer", "id": "reads_with_primer", "type": "numeric", "format": {"specifier": ","}},
             {"name": "% primer", "id": "pct_primer"},
+            {"name": "Primers removed", "id": "input_reads", "type": "numeric", "format": {"specifier": ","}},
             {"name": "Trimmed", "id": "trimmed_reads", "type": "numeric", "format": {"specifier": ","}},
             {"name": "% kept (trim)", "id": "pct_trimmed"},
             {"name": "Merged", "id": "assembled_reads", "type": "numeric", "format": {"specifier": ","}},
@@ -215,7 +218,7 @@ def register_callbacks(app: Any) -> None:
             return children
 
         paths = _preprocess_metric_paths(preprocess_out, run_config_data, project_data)
-        blank = (_card("—", "Input reads"), _card("—", "Surviving reads"), _card("—", "Assembly rate"))
+        blank = (_card("—", "Reads after primer removal"), _card("—", "Surviving reads"), _card("—", "Assembly rate"))
         if "read_tracking_csv" not in paths:
             return blank
         try:
@@ -240,7 +243,7 @@ def register_callbacks(app: Any) -> None:
                 color="var(--red)" if worst < MIN_RETENTION_PCT else None,
             )
         return (
-            _card(f"{total_input:,}", "Input reads", "read pairs for PE"),
+            _card(f"{total_input:,}", "Reads after primer removal", "read pairs for PE"),
             _card(
                 f"{total_surviving:,}",
                 "Surviving reads",
