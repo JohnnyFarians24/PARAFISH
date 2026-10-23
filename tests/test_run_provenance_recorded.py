@@ -271,8 +271,17 @@ class GitCommitTests(unittest.TestCase):
     def test_unknown_when_git_cannot_answer(self):
         import core.export as export
 
-        with patch.object(export.subprocess, "run", side_effect=FileNotFoundError("git")):
+        with patch.dict(export.os.environ), patch.object(export.subprocess, "run", side_effect=FileNotFoundError("git")):
+            export.os.environ.pop("PARAFISH_COMMIT", None)
             self.assertEqual(export.git_commit(), "unknown")
+
+    def test_image_commit_when_git_cannot_answer(self):
+        import core.export as export
+
+        with patch.dict(export.os.environ, {"PARAFISH_COMMIT": "abc1234"}), patch.object(
+            export.subprocess, "run", side_effect=FileNotFoundError("git")
+        ):
+            self.assertEqual(export.git_commit(), "abc1234")
 
 
 class RenderProvenancePrefersWhatTheRunRecordedTests(unittest.TestCase):
