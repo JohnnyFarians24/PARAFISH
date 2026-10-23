@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import csv
 import subprocess
 import warnings
@@ -175,6 +177,25 @@ def _normalize_taxon_value(value: str) -> str:
 	return clean
 
 
+_COMMON_NAME_SUFFIX = re.compile(r"[\s_]*\([^()]*\)\s*$")
+
+
+def _taxon_key(value: str) -> str:
+	"""Comparison key for a taxon name, so references that spell one taxon differently agree.
+
+	SILVA appends the common name to its species labels ("Gadus_morhua_(Atlantic_cod)")
+	and PR2 does not ("Gadus_morhua"); references also differ in spaces versus
+	underscores. Compared as plain strings, two references that name the same species
+	disagree and the consensus falls back to the genus. The label written to the output
+	is still the reference's own; only the comparison uses this key.
+	"""
+	clean = _normalize_taxon_value(value)
+	if not clean:
+		return ""
+	clean = _COMMON_NAME_SUFFIX.sub("", clean)
+	return "_".join(clean.replace("_", " ").split()).lower()
+
+
 def _first_nonempty(row: Dict[str, str], *keys: str) -> str:
 	for key in keys:
 		value = _row_value(row, key)
@@ -269,7 +290,7 @@ def _lca_consensus(records: list[dict]) -> dict:
 		return consensus
 	for level in reversed(TAXONOMY_LEVELS):
 		values = [
-			_normalize_taxon_value(_safe_text(record.get(level))).lower()
+			_taxon_key(_safe_text(record.get(level)))
 			for record in records
 			if _normalize_taxon_value(_safe_text(record.get(level)))
 		]
@@ -309,7 +330,7 @@ def _strict_consensus(records: list[dict]) -> dict:
 		values = [value for value in values if value]
 		if not values:
 			continue
-		if len({value.lower() for value in values}) == 1:
+		if len({_taxon_key(value) for value in values}) == 1:
 			consensus[level] = values[0]
 			continue
 		break
@@ -331,7 +352,7 @@ def _majority_consensus(records: list[dict]) -> dict:
 		counts: Dict[str, int] = defaultdict(int)
 		originals: Dict[str, str] = {}
 		for value in values:
-			key = value.lower()
+			key = _taxon_key(value)
 			counts[key] += 1
 			originals.setdefault(key, value)
 		best_key, best_count = max(counts.items(), key=lambda item: (item[1], item[0]))
