@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +46,39 @@ BLAST_FAILURE_SIGNATURES = (
 REMOTE_BACKOFF_SEC = (30, 120, 0)
 
 
+# How a remote search reaches NCBI. "urlapi" sends the sequences through the BLAST URL API
+# (Biopython's qblast), the service behind the BLAST web page; "blastn" runs
+# ``blastn -remote``. Both are documented NCBI routes, but on the evaluation laptop a
+# single 388 bp OTU sent with ``blastn -remote`` had no answer after 15 min against nt and
+# after 5 min against core_nt, while the same OTU came back in about 1 min through the URL
+# API, and in seconds on the web page.
+NCBI_REMOTE_METHOD = (os.getenv("NCBI_REMOTE_METHOD", "urlapi").strip().lower() or "urlapi")
+# core_nt is the default nucleotide database of web BLAST: GenBank without most of the
+# whole-genome and unplaced sequence that makes nt more than twice its size.
+NCBI_REMOTE_DB = (os.getenv("NCBI_REMOTE_DB", "core_nt").strip() or "core_nt")
+# Sequences per URL API request. One request per run is what NCBI asks for, but a request
+# with thousands of OTUs is slow to queue and loses everything if it fails.
+try:
+	NCBI_REMOTE_BATCH = max(1, int(os.getenv("NCBI_REMOTE_BATCH", "100") or 100))
+except ValueError:
+	NCBI_REMOTE_BATCH = 100
+# NCBI: "Do not contact the server more often than once every 10 seconds."
+REMOTE_REQUEST_GAP_SEC = 10
+
+
+def blast_db_exists(path) -> bool:
+	"""True when ``path`` names a BLAST database: the prefix itself, or its .nal/.nin.
+
+	A BLAST database is a prefix (``SSU_eukaryote_rRNA``) followed by several files
+	(``.nin``, ``.nsq``, ...); there is no file with the bare name, so ``Path.exists()``
+	alone reported every real database as missing and the run fell back to remote.
+	"""
+	if not path:
+		return False
+	p = Path(path)
+	return p.exists() or p.with_suffix(".nal").exists() or p.with_suffix(".nin").exists() or Path(str(p) + ".nal").exists() or Path(str(p) + ".nin").exists()
+
+
 def _server_refusal(text: str) -> Optional[str]:
 	"""The first line of ``text`` that shows NCBI refused the search, or ``None``.
 
@@ -79,6 +114,9 @@ class NCBIConfig:
 	# to 0 to keep *remote* BLAST opt-in, and that zero used to be handed straight to
 	# subprocess(timeout=0), which killed every local BLAST on the spot.
 	timeout: int = NCBI_TIMEOUT_SEC
+	# Remote route and database (see NCBI_REMOTE_METHOD and NCBI_REMOTE_DB above).
+	remote_method: str = NCBI_REMOTE_METHOD
+	remote_db: str = NCBI_REMOTE_DB
 
 	def effective_timeout(self) -> int:
 		"""Seconds to allow this BLAST. Local searches never inherit the remote gate."""
@@ -88,7 +126,8 @@ class NCBIConfig:
 
 	def validate(self) -> List[str]:
 		errors: List[str] = []
-		if not shutil.which(BLASTN_PATH) and not os.path.isfile(BLASTN_PATH):
+		needs_blastn = not (self.use_remote and self.remote_method == "urlapi")
+		if needs_blastn and not shutil.which(BLASTN_PATH) and not os.path.isfile(BLASTN_PATH):
 			errors.append("blastn not found on PATH. Install BLAST+ or adjust BLASTN_PATH.")
 		if not self.use_remote and self.local_db_path is None:
 			errors.append("NCBIConfig: set local_db_path or enable use_remote=True.")
@@ -127,8 +166,253 @@ def _write_no_hit_list(fasta_path: Path, blast_tsv: Path, out_path: Path) -> Non
 	out_path.write_text("\n".join(no_hit), encoding="utf-8")
 
 
+def _read_fasta(fasta_path: Path) -> list[tuple[str, str]]:
+	"""``[(header, sequence), ...]`` in file order."""
+	records: list[tuple[str, str]] = []
+	header, chunks = None, []
+	with fasta_path.open("r", encoding="utf-8", errors="replace") as handle:
+		for line in handle:
+			line = line.rstrip("\n")
+			if line.startswith(">"):
+				if header is not None:
+					records.append((header, "".join(chunks)))
+				header, chunks = line[1:].strip(), []
+			elif line.strip():
+				chunks.append(line.strip())
+	if header is not None:
+		records.append((header, "".join(chunks)))
+	return records
+
+
+def _call_with_timeout(func, timeout: float):
+	"""``(result, exception, timed_out)`` of ``func()`` run in a worker thread.
+
+	qblast polls NCBI until the search is ready and has no time limit of its own; the
+	worker is a daemon, so a search that never returns cannot keep the app alive.
+	"""
+	box: dict = {}
+
+	def target():
+		try:
+			box["result"] = func()
+		except Exception as exc:  # reported to the caller, never swallowed
+			box["error"] = exc
+
+	worker = threading.Thread(target=target, daemon=True)
+	worker.start()
+	worker.join(timeout)
+	if worker.is_alive():
+		return None, None, True
+	return box.get("result"), box.get("error"), False
+
+
+def _qblast_xml(sequences: str, config: NCBIConfig) -> str:
+	"""One URL API search; returns the BLAST XML text. Isolated so tests can replace it."""
+	from Bio.Blast import NCBIWWW
+	from core.config import get_entrez_config
+
+	email = get_entrez_config().get("email") or ""
+	if email:
+		NCBIWWW.email = email
+	kwargs = dict(
+		megablast=(str(config.task) == "megablast"),
+		hitlist_size=int(config.max_target_seqs),
+		expect=float(config.evalue),
+		format_type="XML",
+	)
+	if config.word_size:
+		kwargs["word_size"] = int(config.word_size)
+	handle = NCBIWWW.qblast("blastn", str(config.remote_db), sequences, **kwargs)
+	try:
+		return handle.read()
+	finally:
+		handle.close()
+
+
+def _accession_taxids(accessions: list[str]) -> dict[str, str]:
+	"""``{accession.version: taxid}`` from Entrez esummary. Best-effort.
+
+	The XML of the URL API names the hit but carries no taxid, and the taxid is what the
+	lineage lookup (ncbi_lineage) and the consensus need.
+	"""
+	found: dict[str, str] = {}
+	if not accessions:
+		return found
+	try:
+		from Bio import Entrez
+		from core.config import get_entrez_config
+	except ImportError:
+		return found
+	cfg = get_entrez_config()
+	if not cfg.get("email"):
+		return found
+	Entrez.email = cfg["email"]
+	Entrez.tool = "PARAFISH"
+	if cfg.get("api_key"):
+		Entrez.api_key = cfg["api_key"]
+	unique = list(dict.fromkeys(accessions))
+	for start in range(0, len(unique), 200):
+		chunk = unique[start : start + 200]
+		try:
+			handle = Entrez.esummary(db="nuccore", id=",".join(chunk))
+			records = Entrez.read(handle)
+			handle.close()
+		except Exception:
+			continue
+		for rec in records:
+			acc = str(rec.get("AccessionVersion") or rec.get("Caption") or "").strip()
+			taxid = str(rec.get("TaxId") or "").strip()
+			if acc and taxid and taxid != "0":
+				found[acc] = taxid
+				found.setdefault(acc.split(".")[0], taxid)
+	return found
+
+
+def _taxid_names(taxids: list[str]) -> dict[str, str]:
+	"""``{taxid: species name}`` through the cached lineage lookup. Best-effort."""
+	if not taxids:
+		return {}
+	try:
+		from databases.ncbi_lineage import resolve_lineages
+	except ImportError:
+		return {}
+	lineages, _warnings = resolve_lineages(taxids)
+	return {tid: (ranks.get("species") or ranks.get("genus") or "") for tid, ranks in lineages.items()}
+
+
+def _gap_opens(aligned: str) -> int:
+	return len(re.findall(r"-+", aligned or ""))
+
+
+def _xml_to_rows(xml_text: str, config: NCBIConfig) -> list[dict]:
+	"""Hit rows from BLAST XML, one per HSP kept, with blastn's tabular field names.
+
+	blastn applies -perc_identity and -qcov_hsp_perc itself; the URL API does not, so the
+	same thresholds are applied here and the two routes keep the same evidence standard.
+	"""
+	from io import StringIO
+
+	from Bio.Blast import NCBIXML
+
+	rows: list[dict] = []
+	for record in NCBIXML.parse(StringIO(xml_text)):
+		qseqid = (record.query or record.query_id or "").split()[0]
+		qlen = int(record.query_length or record.query_letters or 0)
+		for alignment in record.alignments[: int(config.max_target_seqs)]:
+			hit_id = re.sub(r"^gi\|\d+\|", "", alignment.hit_id or "")
+			for hsp in alignment.hsps:
+				length = int(hsp.align_length or 0)
+				if not length:
+					continue
+				ident = int(hsp.identities or 0)
+				gaps = int(hsp.gaps) if hsp.gaps is not None else (hsp.query or "").count("-") + (hsp.sbjct or "").count("-")
+				pident = 100.0 * ident / length
+				qcov = 100.0 * (abs(int(hsp.query_end) - int(hsp.query_start)) + 1) / qlen if qlen else 0.0
+				if pident < float(config.perc_identity) or qcov < float(config.qcov_hsp_perc):
+					continue
+				rows.append(
+					{
+						"qseqid": qseqid,
+						"sseqid": hit_id,
+						"accession": str(alignment.accession or "").strip(),
+						"pident": f"{pident:.3f}",
+						"qcovhsp": str(int(round(qcov))),
+						"length": str(length),
+						"mismatch": str(max(0, length - ident - gaps)),
+						"gapopen": str(_gap_opens(hsp.query) + _gap_opens(hsp.sbjct)),
+						"qstart": str(hsp.query_start),
+						"qend": str(hsp.query_end),
+						"sstart": str(hsp.sbjct_start),
+						"send": str(hsp.sbjct_end),
+						"evalue": f"{float(hsp.expect):.3g}",
+						"bitscore": f"{float(hsp.bits):.1f}",
+						"staxids": "",
+						"sscinames": "N/A",
+						"scomnames": "N/A",
+					}
+				)
+	return rows
+
+
+def _run_remote_urlapi(fasta_path: Path, config: NCBIConfig, result_path: Path, nohit_path: Path, log_path: Path) -> StepOutput:
+	"""Remote search through the BLAST URL API, written in blastn's tabular format.
+
+	The output file has exactly the columns of ``config.outfmt``, so every reader of
+	``blast_result.tsv`` downstream works unchanged whichever route produced it.
+	"""
+	log_lines = [f"NCBI URL API (qblast): db={config.remote_db}, task={config.task}, batch={NCBI_REMOTE_BATCH}"]
+	try:
+		import Bio.Blast.NCBIWWW  # noqa: F401
+	except ImportError:
+		log_path.write_text("Biopython is not installed.", encoding="utf-8")
+		return StepOutput(step_name="blast", success=False, files={}, log=log_path, error_message="Biopython is required for the NCBI URL API route (NCBI_REMOTE_METHOD=urlapi).")
+
+	records = _read_fasta(fasta_path)
+	fields = config.outfmt.split()[1:]
+	deadline = time.monotonic() + config.effective_timeout()
+	rows: list[dict] = []
+	for start in range(0, len(records), NCBI_REMOTE_BATCH):
+		batch = records[start : start + NCBI_REMOTE_BATCH]
+		if start:
+			time.sleep(REMOTE_REQUEST_GAP_SEC)
+		remaining = deadline - time.monotonic()
+		if remaining <= 0:
+			remaining = 0
+		fasta_text = "".join(f">{header}\n{seq}\n" for header, seq in batch)
+		xml_text, error, timed_out = _call_with_timeout(lambda: _qblast_xml(fasta_text, config), remaining)
+		label = f"batch {start // NCBI_REMOTE_BATCH + 1} ({len(batch)} sequences)"
+		if timed_out:
+			log_lines.append(f"{label}: no answer before the time limit")
+			log_path.write_text("\n".join(log_lines), encoding="utf-8")
+			return StepOutput(
+				step_name="blast",
+				success=False,
+				files={},
+				log=log_path,
+				error_message=(
+					f"NCBI did not answer within {config.effective_timeout()}s (URL API, db={config.remote_db}). "
+					f"Raise NCBI_TIMEOUT_SEC in .env, try again later, or use a local BLAST database."
+				),
+			)
+		if error is not None:
+			text = str(error)
+			log_lines.append(f"{label}: {text[:400]}")
+			log_path.write_text("\n".join(log_lines), encoding="utf-8")
+			refusal = _server_refusal(text)
+			detail = (
+				f"NCBI refused the search (URL API): {refusal}" if refusal else f"NCBI URL API search failed: {text[:400]}"
+			)
+			return StepOutput(step_name="blast", success=False, files={}, log=log_path, error_message=detail)
+		batch_rows = _xml_to_rows(xml_text or "", config)
+		log_lines.append(f"{label}: {len(batch_rows)} hits")
+		rows.extend(batch_rows)
+
+	taxids = _accession_taxids([row["accession"] for row in rows if row["accession"]])
+	names = _taxid_names(sorted(set(taxids.values())))
+	for row in rows:
+		tid = taxids.get(row["accession"]) or taxids.get(row["accession"].split(".")[0], "")
+		row["staxids"] = tid
+		if names.get(tid):
+			row["sscinames"] = names[tid]
+	missing = sum(1 for row in rows if not row["staxids"])
+	if missing:
+		log_lines.append(f"{missing} hit(s) without a taxid (Entrez unavailable or ENTREZ_EMAIL not set)")
+
+	with result_path.open("w", encoding="utf-8") as handle:
+		for row in rows:
+			handle.write("\t".join(str(row.get(field, "")) for field in fields) + "\n")
+	log_path.write_text("\n".join(log_lines), encoding="utf-8")
+	_write_no_hit_list(fasta_path, result_path, nohit_path)
+	return StepOutput(
+		step_name="blast",
+		success=True,
+		files={"blast_tsv": result_path, "blast_no_hit": nohit_path, "log": log_path},
+		metrics={"hit_count": float(len(rows))},
+	)
+
+
 def run_blast(fasta_path: Path, config: NCBIConfig, output_dir: Path) -> StepOutput:
-	"""Run blastn against NCBI nt using local or remote mode."""
+	"""Run a BLAST search against NCBI: local database, URL API (default remote) or blastn -remote."""
 	output_dir.mkdir(parents=True, exist_ok=True)
 	log_path = output_dir / "blast.log"
 	result_path = output_dir / "blast_result.tsv"
@@ -138,6 +422,9 @@ def run_blast(fasta_path: Path, config: NCBIConfig, output_dir: Path) -> StepOut
 	if errors:
 		log_path.write_text("\n".join(errors), encoding="utf-8")
 		return StepOutput(step_name="blast", success=False, files={}, log=log_path, error_message="\n".join(errors))
+
+	if config.use_remote and config.remote_method == "urlapi":
+		return _run_remote_urlapi(fasta_path, config, result_path, nohit_path, log_path)
 
 	command = [
 		BLASTN_PATH,
@@ -168,7 +455,7 @@ def run_blast(fasta_path: Path, config: NCBIConfig, output_dir: Path) -> StepOut
 		# Every OTU goes in ONE request: -query is the whole multi-FASTA and blastn
 		# submits it as a single job. Per-sequence requests would be both slower and the
 		# kind of traffic NCBI's limits exist to stop.
-		command.extend(["-db", "nt", "-remote"])
+		command.extend(["-db", str(config.remote_db), "-remote"])
 	else:
 		command.extend(["-db", str(config.local_db_path), "-num_threads", str(config.num_threads)])
 

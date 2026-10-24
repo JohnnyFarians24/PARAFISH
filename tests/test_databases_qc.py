@@ -74,7 +74,7 @@ class TestNCBI(unittest.TestCase):
 		query = temp_path / "query.fasta"
 		query.write_text(">OTU1\nACGT\n", encoding="utf-8")
 		completed = subprocess.CompletedProcess(args=["blastn"], returncode=0, stdout="", stderr=stderr)
-		cfg = NCBIConfig(use_remote=True)
+		cfg = NCBIConfig(use_remote=True, remote_method="blastn")
 		with patch("databases.ncbi_db.shutil.which", return_value="/usr/bin/blastn"), \
 			patch("databases.ncbi_db.subprocess.run", return_value=completed), \
 			patch("databases.ncbi_db.time.sleep"), \

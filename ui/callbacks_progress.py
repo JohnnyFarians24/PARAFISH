@@ -253,7 +253,8 @@ def _run_provenance(run_config, run_config_data) -> dict:
     forward, reverse = resolve_primers(run_config)
     markers = sorted({sample.marker.value for sample in _selected_samples(run_config.samples)})
     db_paths = get_db_paths()
-    ncbi_local = bool(NCBI_USE_LOCAL_DB and db_paths.blast and db_paths.blast.exists())
+    from databases.ncbi_db import blast_db_exists
+    ncbi_local = bool(NCBI_USE_LOCAL_DB and blast_db_exists(db_paths.blast))
     block = {
         "db_sources": requested_sources,
         "min_unique_size": int(vsearch_params.get("min_unique_size", MIN_UNIQUE_SIZE)),
@@ -876,7 +877,8 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                 # megablast (blastn/dc-megablast are refused with SIGXCPU); a local db is
                 # our own CPU and can afford the sensitive search that finds a parasite at
                 # ~90% identity, which megablast's 28 bp seed can miss.
-                use_local_blast = NCBI_USE_LOCAL_DB and bool(db_paths.blast and db_paths.blast.exists())
+                from databases.ncbi_db import blast_db_exists
+                use_local_blast = NCBI_USE_LOCAL_DB and bool(blast_db_exists(db_paths.blast))
                 ncbi_config = (
                     NCBIConfig(
                         local_db_path=db_paths.blast if use_local_blast else None,
