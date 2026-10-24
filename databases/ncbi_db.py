@@ -261,7 +261,12 @@ def _accession_taxids(accessions: list[str]) -> dict[str, str]:
 			continue
 		for rec in records:
 			acc = str(rec.get("AccessionVersion") or rec.get("Caption") or "").strip()
-			taxid = str(rec.get("TaxId") or "").strip()
+			# Entrez.read gives IntegerElement objects, whose str() is their repr
+			# ("IntegerElement(8063, attributes={})"), not the number.
+			try:
+				taxid = str(int(rec.get("TaxId") or 0))
+			except (TypeError, ValueError):
+				taxid = ""
 			if acc and taxid and taxid != "0":
 				found[acc] = taxid
 				found.setdefault(acc.split(".")[0], taxid)
@@ -327,8 +332,10 @@ def _xml_to_rows(xml_text: str, config: NCBIConfig) -> list[dict]:
 						"evalue": f"{float(hsp.expect):.3g}",
 						"bitscore": f"{float(hsp.bits):.1f}",
 						"staxids": "",
-						"sscinames": "N/A",
-						"scomnames": "N/A",
+						# Left blank, not "N/A": a blank species is filled from the taxid lineage,
+						# while "N/A" would be taken as a species name.
+						"sscinames": "",
+						"scomnames": "",
 					}
 				)
 	return rows

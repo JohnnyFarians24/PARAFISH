@@ -4,6 +4,7 @@ No test here touches the network: the URL API call, Entrez and the lineage looku
 replaced, and the BLAST XML is a fixed sample in the format NCBI returns.
 """
 
+import io
 import tempfile
 import time
 import unittest
@@ -148,6 +149,32 @@ class URLAPIRemoteTests(unittest.TestCase):
 		cfg = NCBIConfig(use_remote=True)
 		self.assertEqual(cfg.remote_method, "urlapi")
 		self.assertEqual(cfg.remote_db, "core_nt")
+
+
+class AccessionTaxidTests(unittest.TestCase):
+	def test_taxids_are_numbers_not_the_repr_of_entrez_objects(self):
+		"""Entrez.read returns IntegerElement, whose str() is "IntegerElement(8063, ...)".
+		That string reached blast_result.tsv as the taxid, the lineage lookup discarded it,
+		and every remote hit was named "N/A"."""
+		from databases import ncbi_db
+
+		class IntegerElement(int):
+			def __str__(self):
+				return f"IntegerElement({int(self)}, attributes={{}})"
+
+		records = [{"AccessionVersion": "KF986698.1", "TaxId": IntegerElement(8063)}]
+		with patch("core.config.get_entrez_config", return_value={"email": "a@b.c", "api_key": ""}), \
+			patch("Bio.Entrez.esummary", return_value=io.StringIO("")), \
+			patch("Bio.Entrez.read", return_value=records):
+			found = ncbi_db._accession_taxids(["KF986698"])
+		self.assertEqual(found["KF986698"], "8063")
+		self.assertEqual(found["KF986698.1"], "8063")
+
+	def test_an_unnamed_hit_leaves_the_species_blank_for_the_lineage_to_fill(self):
+		from databases.ncbi_db import NCBIConfig, _xml_to_rows
+
+		rows = _xml_to_rows(sample_xml(), NCBIConfig())
+		self.assertEqual({r["sscinames"] for r in rows}, {""})
 
 
 class BlastDbExistsTests(unittest.TestCase):
