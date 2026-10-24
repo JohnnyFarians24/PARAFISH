@@ -22,6 +22,7 @@ from core.preflight import available_memory_bytes, sintax_memory_required
 
 from databases.bold_db import BOLDConfig, run_boldigger as run_boldigger_step
 from databases.ncbi_db import BLAST_FAILURE_SIGNATURES, NCBIConfig, run_blast
+from databases.ncbi_lineage import is_placeholder_name
 from databases.pr2_db import PR2Config
 from databases.reference_filter import build_marker_reference
 from databases.silva_db import SILVAConfig
@@ -270,6 +271,10 @@ def _normalize_source_row(source: str, row: Dict[str, str]) -> Dict[str, str]:
 	}
 	for level in TAXONOMY_LEVELS:
 		normalized[level] = _normalize_taxon_value(normalized[level])
+	# An environmental placeholder ("uncultured eukaryote") is not a species: kept, it
+	# counted an unidentified sequence as resolved to species level.
+	if normalized["species"] and is_placeholder_name(normalized["species"]):
+		normalized["species"] = ""
 	if not normalized["genus"] and normalized["species"]:
 		normalized["genus"] = _genus_from_binomial(normalized["species"])
 	return normalized

@@ -42,6 +42,20 @@ LINEAGE_KEYS = ("kingdom", "phylum", "class_", "order", "family", "genus", "spec
 
 _TAXID_RE = re.compile(r"^\d+$")
 
+# Words that mark a name as a placeholder rather than a taxon. NCBI Taxonomy files
+# environmental sequences under names such as "uncultured eukaryote" with rank
+# "species", and SILVA writes the same kind of label ("uncultured_eukaryote"); taken at
+# face value they count an unidentified sequence as resolved to species.
+_PLACEHOLDER_MARKERS = frozenset(
+    {"uncultured", "unidentified", "unclassified", "environmental", "sample", "clone", "isolate", "metagenome", "symbiont"}
+)
+
+
+def is_placeholder_name(name) -> bool:
+    """True for "uncultured eukaryote", "uncultured_marine_eukaryote", "environmental sample"..."""
+    tokens = str(name or "").replace("_", " ").lower().split()
+    return bool(_PLACEHOLDER_MARKERS & {token.strip(".,;()") for token in tokens})
+
 
 def _clean_taxids(taxids: Iterable[str]) -> List[str]:
     """Unique, order-preserving numeric taxids. ``"12345;67890"`` -> two ids."""
@@ -174,5 +188,8 @@ def fill_records(records: Iterable[dict], lineages: Dict[str, Dict[str, str]]) -
         if not ranks:
             continue
         for key in LINEAGE_KEYS:
-            if not str(record.get(key) or "").strip() and ranks.get(key):
-                record[key] = ranks[key]
+            value = ranks.get(key)
+            if key in ("genus", "species") and is_placeholder_name(value):
+                continue
+            if not str(record.get(key) or "").strip() and value:
+                record[key] = value
