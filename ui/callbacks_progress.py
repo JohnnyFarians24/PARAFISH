@@ -27,7 +27,7 @@ from databases.database_metrics import build_database_metrics
 from databases.ncbi_db import NCBIConfig
 from databases.pr2_db import PR2Config
 from databases.reference_filter import marker_filter_applies, resolve_run_marker
-from databases.silva_db import SILVAConfig
+from databases.silva_db import SILVAConfig, silva_rank_path
 from databases.taxonomy_runner import run_taxonomy_pipeline
 from phylo import phylo_input_error
 from phylo.phylo_metrics import build_metrics_from_files
@@ -211,6 +211,9 @@ def _recorded_references(run_config, requested_sources, db_paths, ncbi_local: bo
     candidates = []
     if "silva" in requested_sources:
         candidates.append(("silva", getattr(db_paths, "silva", None)))
+        # Only listed when set and present (a missing file is skipped below and the run
+        # log says so), so a run without the rank file records exactly what it did before.
+        candidates.append(("silva_ranks", getattr(db_paths, "silva_ranks", None)))
     if "pr2" in requested_sources:
         candidates.append(("pr2", getattr(db_paths, "pr2", None)))
         candidates.append(("pr2_taxonomy", getattr(db_paths, "pr2_tax", None)))
@@ -865,7 +868,12 @@ def _run_pipeline_thread(run_config, run_config_data, progress_path):
                     logs.append(entry)
                     append_log(progress_path, entry)
 
-                silva_config = SILVAConfig(db_path=db_paths.silva) if "silva" in db_sources and db_paths.silva and db_paths.silva.exists() else None
+                silva_ranks, silva_ranks_note = silva_rank_path(db_paths)
+                if silva_ranks_note and "silva" in db_sources:
+                    entry = _log_entry(utc_now_iso(), "WARN", silva_ranks_note)
+                    logs.append(entry)
+                    append_log(progress_path, entry)
+                silva_config = SILVAConfig(db_path=db_paths.silva, rank_path=silva_ranks) if "silva" in db_sources and db_paths.silva and db_paths.silva.exists() else None
                 pr2_config = PR2Config(db_path=db_paths.pr2, tax_path=db_paths.pr2_tax) if "pr2" in db_sources and db_paths.pr2 and db_paths.pr2.exists() else None
                 # NCBI's public remote nt is the default source, by decision: it is what a
                 # reviewer can reproduce without our filesystem. A local db is an opt-in

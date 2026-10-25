@@ -132,8 +132,20 @@ inside the container, which is what the default paths in `.env.example` assume.
 
 ```bash
 wget https://www.arb-silva.de/fileadmin/silva_databases/release_138_2/Exports/SILVA_138.2_SSURef_NR99_tax_silva.fasta.gz
-# place under $DB_ROOT/silva/
+# optional, recommended: SILVA's rank file, so SILVA also gives phylum..genus
+wget https://www.arb-silva.de/fileadmin/silva_databases/release_138_2/Exports/taxonomy/tax_slv_ssu_138.2.txt.gz
+# place both under $DB_ROOT/silva/
 ```
+
+The SILVA FASTA lineages do not say which level is a phylum, a class or a genus. Without
+the rank file PARAFISH therefore takes only the domain and the organism name from SILVA.
+With `DB_SILVA_RANKS_PATH` pointing at `tax_slv_ssu_<release>.txt[.gz]`, each level gets
+the rank SILVA itself declares for it (domain, phylum, class, order, family, genus; other
+declared ranks such as `major_clade` are left out). The ranked reference is cached under
+its own name (`*.sintax.v4r.<hash>.fasta`), so the unranked one is never overwritten. Note
+that SILVA's ranks are its own and can differ from NCBI's (for fish, *Actinopterygii* in
+SILVA against *Actinopteri* in NCBI), so a run that combines SILVA with NCBI or BOLD can
+list rank conflicts that are naming, not biology.
 
 ### PR2 v5.1.1 — local, protist-focused
 
@@ -193,6 +205,7 @@ Copy `cp .env.example .env` and edit. Every variable below is read by `core/conf
 | Variable | Meaning | Example |
 |---|---|---|
 | `DB_SILVA_PATH` | SILVA FASTA (`.fasta` or `.fasta.gz`) | `/data/silva/SILVA_138.2_SSURef_NR99_tax_silva.fasta.gz` |
+| `DB_SILVA_RANKS_PATH` | Optional. SILVA rank file; when set, SILVA contributes phylum..genus as SILVA declares them | `/data/silva/tax_slv_ssu_138.2.txt.gz` |
 | `DB_PR2_PATH` | PR2 mothur FASTA | `/data/pr2/pr2_version_5.1.1_SSU_mothur.fasta.gz` |
 | `DB_PR2_TAX_PATH` | PR2 mothur taxonomy file | `/data/pr2/pr2_version_5.1.1_SSU_mothur.tax` |
 | `DB_PR2_DADA2_PATH` | PR2 in DADA2 format, for `assignTaxonomy()` | `/data/pr2/pr2_..._dada2.fasta` |

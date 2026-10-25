@@ -14,7 +14,7 @@ from databases.custom_db import CustomDBConfig
 from databases.ncbi_db import NCBIConfig
 from databases.pr2_db import PR2Config
 from databases.reference_filter import resolve_run_marker
-from databases.silva_db import SILVAConfig
+from databases.silva_db import SILVAConfig, silva_rank_path
 from databases.taxonomy_runner import run_taxonomy_pipeline
 from preprocess.cutadapt_runner import resolve_primers
 from ui.components.collapsible import details
@@ -1301,7 +1301,8 @@ def register_callbacks(app: Any) -> None:
             or []
         )
        
-        silva_config = SILVAConfig(db_path=db_paths.silva) if "silva" in db_sources and db_paths.silva and db_paths.silva.exists() else None
+        silva_ranks, _silva_ranks_note = silva_rank_path(db_paths)
+        silva_config = SILVAConfig(db_path=db_paths.silva, rank_path=silva_ranks) if "silva" in db_sources and db_paths.silva and db_paths.silva.exists() else None
         pr2_config = PR2Config(db_path=db_paths.pr2, tax_path=db_paths.pr2_tax) if "pr2" in db_sources and db_paths.pr2 and db_paths.pr2.exists() else None
         # BOLDigger3 works against the remote BOLD API, so it must NOT be gated on
         # a local directory existing — only on the user enabling the BOLD source.

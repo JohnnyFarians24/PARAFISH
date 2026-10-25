@@ -41,6 +41,9 @@ class DBPaths:
 	bold_dir: Optional[Path]
 	blast: Optional[Path]
 	pr2_tax: Optional[Path] = None
+	# SILVA's rank file (tax_slv_ssu_<release>.txt[.gz]). Opt-in: when unset, SILVA
+	# contributes only domain and organism name, exactly as before.
+	silva_ranks: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +178,7 @@ def get_db_paths() -> DBPaths:
 		bold_dir=_path_or_none(os.getenv("DB_BOLD_PATH", os.getenv("BOLD_DB_PATH", ""))),
 		blast=_path_or_none(os.getenv("DB_BLAST_PATH", os.getenv("NCBI_BLAST_DB", ""))),
 		pr2_tax=_resolve_pr2_tax(pr2),
+		silva_ranks=_path_or_none(os.getenv("DB_SILVA_RANKS_PATH", "")),
 	)
 
 

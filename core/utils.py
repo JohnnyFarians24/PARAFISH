@@ -329,6 +329,82 @@ def silva_rank_labels(depth: int) -> list:
 	return ["d", *([None] * (depth - 2)), "s"]
 
 
+# The ranks SILVA's rank file can declare that have a Linnean column in the consensus.
+# Everything else it declares (major_clade, superphylum, subclass, kingdom, ...) has no
+# slot and is left out rather than squeezed into a neighbouring one. "kingdom" is left
+# out on purpose: the SINTAX d: field already fills the kingdom column with the domain.
+SILVA_DECLARED_RANK_LETTERS = {
+	"domain": "d",
+	"phylum": "p",
+	"class": "c",
+	"order": "o",
+	"family": "f",
+	"genus": "g",
+}
+
+
+def load_silva_rank_map(path) -> dict:
+	"""Read SILVA's rank file (``tax_slv_ssu_<release>.txt``, plain or gzipped).
+
+	Each line is ``path<TAB>taxid<TAB>rank<TAB>remark<TAB>release``, where ``path`` is the
+	lineage up to and including that taxon, ``;``-terminated (``Eukaryota;Amorphea;``).
+	Returns ``{path: rank}`` with the rank lower-cased. Lines without a path or a rank are
+	skipped. An empty map means the file is not a SILVA rank file; the caller refuses it.
+	"""
+	path = str(path)
+	opener = gzip.open if path.lower().endswith(".gz") else open
+	rank_map = {}
+	with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+		for line in handle:
+			parts = line.rstrip("\r\n").split("\t")
+			if len(parts) < 3:
+				continue
+			lineage = parts[0].strip()
+			rank = parts[2].strip().lower()
+			if not lineage or not rank:
+				continue
+			if not lineage.endswith(";"):
+				lineage += ";"
+			rank_map[lineage] = rank
+	return rank_map
+
+
+def silva_declared_labels(fields: list, rank_map: dict) -> list:
+	"""Rank letters for a SILVA lineage, taken from the ranks SILVA itself declares.
+
+	The counterpart of :func:`silva_rank_labels` when the rank file is available. Each
+	intermediate field is looked up by its accumulated path (``A;B;C;``), which is how the
+	rank file keys taxa, so a name reused on different branches resolves on its own
+	branch. Only the ranks in ``SILVA_DECLARED_RANK_LETTERS`` are kept; each letter is
+	used once and only in descending order (d, p, c, o, f, g), so a malformed path cannot
+	put a family above an order. The two ends keep their fixed meaning: the first field is
+	the domain and the last is the organism name (it is not in the rank file).
+
+	Always returns exactly ``len(fields)`` entries, like ``silva_rank_labels``.
+	"""
+	depth = len(fields)
+	if depth <= 0:
+		return []
+	labels = [None] * depth
+	labels[0] = "d"
+	if depth == 1:
+		return labels
+	order = ("d", "p", "c", "o", "f", "g")
+	last_index = 0
+	for position in range(1, depth - 1):
+		lineage = ";".join(fields[: position + 1]) + ";"
+		letter = SILVA_DECLARED_RANK_LETTERS.get(rank_map.get(lineage, ""))
+		if not letter:
+			continue
+		index = order.index(letter)
+		if index <= last_index:
+			continue
+		labels[position] = letter
+		last_index = index
+	labels[-1] = "s"
+	return labels
+
+
 def taxonomy_fields_to_sintax(fields: list, rank_labels=None) -> str:
 	"""Convert an ordered list of taxonomy levels into a VSEARCH SINTAX tax= value.
 

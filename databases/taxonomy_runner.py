@@ -1559,6 +1559,10 @@ def run_taxonomy_pipeline(
 				status, detail = _classify_sintax_source(silva_path, output_dir / "silva" / "silva_sintax.log")
 				if filter_note:
 					detail = f"{detail} · {filter_note}"
+				rank_note = silva_config.rank_note() if hasattr(silva_config, "rank_note") else ""
+				if rank_note:
+					detail = f"{detail} · {rank_note}"
+					log_lines.append(f"SILVA: {rank_note}")
 				source_status.append({"source": "SILVA", "status": status, "detail": detail, "key": "SILVA", "raw": silva_path})
 
 	if pr2_config is not None and _marker_incompatible("PR2", marker):
