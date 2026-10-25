@@ -366,6 +366,27 @@ def register_callbacks(app: Any) -> None:
         _id_col = "feature_id" if "feature_id" in frame.columns else "ASV_ID"
         n_features = frame[_id_col].nunique() if _id_col in frame.columns else 0
         headers = {**_CONSENSUS_HEADERS, "hit_rank": "Hit #", "identity": "% identity", "coverage": "% coverage", "reliability": "Reliability", "source": "Source", "taxon": "Taxon", "subject": "Reference"}
+
+        # Which database assigned how many features: counted on every hit that passes the
+        # identity/coverage filters, not only the top N shown below, so a source whose hits
+        # rank 4th or lower is not undercounted.
+        from ui.table_export import source_assignment_summary
+
+        all_ranks, _ = _load_hits_frame(outputs, run_output_dir, feature_set, min_identity or 0, min_coverage or 0, 0)
+        per_source = source_assignment_summary(all_ranks)
+        per_source_block = []
+        if not per_source.empty:
+            per_source_block = [
+                html.Div("Features assigned per database", className="mini-note"),
+                data_table(
+                    data=per_source.to_dict("records"),
+                    columns=[{"name": str(c), "id": str(c)} for c in per_source.columns],
+                    sort_action="native",
+                    id="hits-per-source-table",
+                    page_size=10,
+                ),
+            ]
+
         return html.Div(
             [
                 html.Div(
@@ -375,6 +396,7 @@ def register_callbacks(app: Any) -> None:
                     ],
                     className="chip-list",
                 ),
+                *per_source_block,
                 data_table(
                     data=frame.to_dict("records"),
                     columns=[{"name": headers.get(str(c), str(c)), "id": str(c)} for c in frame.columns],
@@ -398,12 +420,19 @@ def register_callbacks(app: Any) -> None:
         State("hits-top-n", "value"),
         State("store-run-config", "data"),
         State("store-project", "data"),
+        State("hits-table-state", "data"),
         prevent_initial_call=True,
     )
-    def _download_hits(n_clicks, db_out, feature_set, min_identity, min_coverage, top_n, run_config_data, project_data):
-        """Export exactly what the user is looking at, as one flat table."""
+    def _download_hits(n_clicks, db_out, feature_set, min_identity, min_coverage, top_n, run_config_data, project_data, table_state=None):
+        """Export exactly what the user is looking at, as one flat table.
+
+        Ticked rows only, when any are ticked; otherwise the rows the table's own filter
+        leaves; otherwise (nothing ticked, nothing filtered) the whole table as before.
+        """
         if not n_clicks:
             raise PreventUpdate
+        from ui.table_export import export_positions
+
         db = _normalize_store(db_out)
         outputs = db.get("outputs") or {}
         run_output_dir = _resolve_output_dir(run_config_data, project_data)
@@ -411,7 +440,36 @@ def register_callbacks(app: Any) -> None:
         frame, error = _load_hits_frame(outputs, run_output_dir, feature_set, min_identity or 0, min_coverage or 0, top_n or 0)
         if frame is None or error or frame.empty:
             raise PreventUpdate
-        return dcc.send_data_frame(frame.to_csv, f"{feature_set}_best_hits.csv", index=False)
+        positions = export_positions(table_state, len(frame))
+        filename = f"{feature_set}_best_hits.csv"
+        if positions is not None:
+            if not positions:
+                raise PreventUpdate
+            frame = frame.iloc[positions]
+            filename = f"{feature_set}_best_hits_selected.csv"
+        return dcc.send_data_frame(frame.to_csv, filename, index=False)
+
+    @app.callback(
+        Output("hits-table-state", "data"),
+        Input("hits-table", "selected_rows"),
+        Input("hits-table", "derived_virtual_indices"),
+        State("hits-table", "data"),
+    )
+    def _remember_hits_view(selected_rows, virtual_indices, data):
+        from ui.table_export import table_view_state
+
+        return table_view_state(data, selected_rows, virtual_indices)
+
+    @app.callback(
+        Output("feature-summary-table-state", "data"),
+        Input("feature-summary-table", "selected_rows"),
+        Input("feature-summary-table", "derived_virtual_indices"),
+        State("feature-summary-table", "data"),
+    )
+    def _remember_summary_view(selected_rows, virtual_indices, data):
+        from ui.table_export import table_view_state
+
+        return table_view_state(data, selected_rows, virtual_indices)
 
     @app.callback(
         Output("databases-feature-summary", "children"),
@@ -473,6 +531,7 @@ def register_callbacks(app: Any) -> None:
                 columns=[{"name": headers.get(str(c), str(c)), "id": str(c)} for c in frame.columns],
                 sort_action="native",
                 filter_action="native",
+                row_selectable="multi",
                 id="feature-summary-table",
                 page_size=15,
             ),
@@ -511,13 +570,19 @@ def register_callbacks(app: Any) -> None:
         State("databases-feature-set", "value"),
         State("store-run-config", "data"),
         State("store-project", "data"),
+        State("feature-summary-table-state", "data"),
         prevent_initial_call=True,
     )
-    def _download_summary(n_clicks, db_out, feature_set, run_config_data, project_data):
-        """Hand over the exact file the pipeline wrote — not a re-serialization of the screen."""
+    def _download_summary(n_clicks, db_out, feature_set, run_config_data, project_data, table_state=None):
+        """Hand over the exact file the pipeline wrote — not a re-serialization of the screen.
+
+        Unless rows are ticked, or the table is filtered: then only those rows, read from the
+        same file the same way the table reads it, with the same columns.
+        """
         if not n_clicks:
             raise PreventUpdate
         from ui.feature_sets import taxonomy_file
+        from ui.table_export import export_positions
 
         db = _normalize_store(db_out)
         outputs = db.get("outputs") or {}
@@ -526,6 +591,15 @@ def register_callbacks(app: Any) -> None:
         path = taxonomy_file(outputs, run_output_dir, feature_set, "taxonomy_summary_csv")
         if not path:
             raise PreventUpdate
+        if isinstance(table_state, dict) and (table_state.get("selected_rows") or table_state.get("virtual_indices") is not None):
+            import pandas as pd
+
+            frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+            positions = export_positions(table_state, len(frame))
+            if positions is not None:
+                if not positions:
+                    raise PreventUpdate
+                return dcc.send_data_frame(frame.iloc[positions].to_csv, f"{feature_set}_taxonomy_summary_selected.csv", index=False)
         return dcc.send_file(path, filename=f"{feature_set}_taxonomy_summary.csv")
 
     @app.callback(

@@ -184,12 +184,18 @@ def layout():
 						style={"display": "flex", "gap": "16px", "flexWrap": "wrap", "marginBottom": "12px"},
 					),
 					html.Div(
+						"Tick rows to download only those; with none ticked, the download holds every "
+						"row the table shows (after its filters).",
+						className="mini-note",
+					),
+					html.Div(
 						[
-							html.Button("Download single table (CSV)", id="btn-download-hits", className="btn-parafish"),
+							html.Button("Download table (CSV)", id="btn-download-hits", className="btn-parafish"),
 							dcc.Download(id="download-hits-csv"),
 						],
 						className="control-row",
 					),
+					dcc.Store(id="hits-table-state", storage_type="memory"),
 					dcc.Loading(html.Div(id="databases-hits"), type="dot"),
 				],
 				className="card card-body",
@@ -208,12 +214,18 @@ def layout():
 						className="mini-note",
 					),
 					html.Div(
+						"Sorted by reads. Tick rows to download only those; with none ticked and no "
+						"filter, the download is the pipeline's own taxonomy_summary.csv.",
+						className="mini-note",
+					),
+					html.Div(
 						[
 							html.Button("Download summary (CSV)", id="btn-download-summary", className="btn-parafish"),
 							dcc.Download(id="download-summary-csv"),
 						],
 						className="control-row",
 					),
+					dcc.Store(id="feature-summary-table-state", storage_type="memory"),
 					dcc.Loading(html.Div(id="databases-feature-summary"), type="dot"),
 				],
 				className="card card-body",
