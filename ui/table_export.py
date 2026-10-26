@@ -72,49 +72,61 @@ def export_positions(state, n_rows: int) -> Optional[list]:
 	return rows_to_export(n_rows, state.get("selected_rows"), state.get("virtual_indices"))
 
 
+# Ranks that do not count as naming a feature: every SINTAX call carries at least the
+# domain, so a hit at domain level ("kingdom" in the hits table) says nothing about what
+# the feature is.
+_NOT_NAMED = {"", "kingdom", "domain", "unassigned", "nan"}
+
+
 def source_assignment_summary(frame):
-	"""One row per database: how many features it assigned and how many reads they hold.
+	"""One row per database: features it hit, features it named below the domain, their reads.
 
 	``frame`` is the ranked hits table (one row per feature x hit, with ``source``,
-	``feature_id`` and ``reads``). A feature counts for a source when the source has at
-	least one hit for it. Reads are those of the feature (the same for all its rows), so a
-	feature's reads are counted once per source, and ``% of reads`` is relative to all the
-	features present in ``frame``. Sorted by features, then reads, descending.
+	``feature_id``, ``reads`` and ``rank``). A feature counts as hit by a source when the
+	source has any row for it, and as named when one of those rows reaches phylum or deeper.
+	Reads are those of the feature (the same on all its rows), counted once per source;
+	``% of reads`` is relative to all the features present in ``frame``. Sorted by named
+	features, then their reads, descending. Without a ``rank`` column every hit counts as
+	named, as before.
 	"""
 	import pandas as pd
 
-	columns = ["Database", "Features assigned", "Reads in those features", "% of reads"]
+	columns = ["Database", "Features with a hit", "Named below the domain", "Reads in named features", "% of reads"]
 	if frame is None or frame.empty or "source" not in frame.columns:
 		return pd.DataFrame(columns=columns)
 	id_col = "feature_id" if "feature_id" in frame.columns else ("ASV_ID" if "ASV_ID" in frame.columns else None)
 	if id_col is None:
 		return pd.DataFrame(columns=columns)
 
-	work = frame[[id_col, "source"] + (["reads"] if "reads" in frame.columns else [])].copy()
+	keep = [id_col, "source"] + [c for c in ("reads", "rank") if c in frame.columns]
+	work = frame[keep].copy()
 	work["source"] = work["source"].fillna("").astype(str).str.strip()
 	work = work[work["source"] != ""]
-	if "reads" in work.columns:
-		work["reads"] = pd.to_numeric(work["reads"], errors="coerce")
+	work["reads"] = pd.to_numeric(work["reads"], errors="coerce") if "reads" in work.columns else float("nan")
+	if "rank" in work.columns:
+		work["named"] = ~work["rank"].fillna("").astype(str).str.strip().str.lower().isin(_NOT_NAMED)
 	else:
-		work["reads"] = float("nan")
+		work["named"] = True
 
 	per_feature_reads = work.groupby(id_col)["reads"].first()
 	total_reads = per_feature_reads.sum(min_count=1)
 
 	rows = []
 	for source, group in work.groupby("source"):
-		features = group[id_col].drop_duplicates()
-		reads = per_feature_reads.reindex(features).sum(min_count=1)
+		hit = group[id_col].drop_duplicates()
+		named = group.loc[group["named"], id_col].drop_duplicates()
+		reads = per_feature_reads.reindex(named).sum(min_count=1)
 		pct = (100.0 * reads / total_reads) if pd.notna(reads) and pd.notna(total_reads) and total_reads else float("nan")
 		rows.append(
 			{
 				"Database": source,
-				"Features assigned": int(len(features)),
-				"Reads in those features": "" if pd.isna(reads) else int(reads),
+				"Features with a hit": int(len(hit)),
+				"Named below the domain": int(len(named)),
+				"Reads in named features": "" if pd.isna(reads) else int(reads),
 				"% of reads": "" if pd.isna(pct) else round(float(pct), 2),
 			}
 		)
 	result = pd.DataFrame(rows, columns=columns)
-	sort_reads = pd.to_numeric(result["Reads in those features"], errors="coerce").fillna(-1)
-	order = sorted(range(len(result)), key=lambda i: (-result["Features assigned"].iloc[i], -sort_reads.iloc[i], result["Database"].iloc[i]))
+	sort_reads = pd.to_numeric(result["Reads in named features"], errors="coerce").fillna(-1)
+	order = sorted(range(len(result)), key=lambda i: (-result["Named below the domain"].iloc[i], -sort_reads.iloc[i], result["Database"].iloc[i]))
 	return result.iloc[order].reset_index(drop=True)

@@ -23,14 +23,15 @@ from ui.table_export import export_positions, rows_to_export, source_assignment_
 
 
 HITS = [
-	# feature, reads, rank, source, identity, coverage, taxon
-	("OTU1", 900, 1, "NCBI", 100.0, 100.0, "Gadus morhua"),
-	("OTU1", 900, 2, "SILVA", "", "", "Gadus morhua"),
-	("OTU1", 900, 3, "PR2", "", "", "Gadus"),
-	("OTU2", 80, 1, "SILVA", "", "", "Anisakis simplex"),
-	("OTU2", 80, 2, "NCBI", 98.5, 100.0, "Anisakis simplex"),
-	("OTU3", 20, 1, "PR2", "", "", "Kudoa"),
+	# feature, reads, hit_rank, source, identity, coverage, taxon, rank
+	("OTU1", 900, 1, "NCBI", 100.0, 100.0, "Gadus morhua", "species"),
+	("OTU1", 900, 2, "SILVA", "", "", "Gadus morhua", "species"),
+	("OTU1", 900, 3, "PR2", "", "", "Gadus", "genus"),
+	("OTU2", 80, 1, "SILVA", "", "", "Eukaryota", "kingdom"),
+	("OTU2", 80, 2, "NCBI", 98.5, 100.0, "Anisakis simplex", "species"),
+	("OTU3", 20, 1, "PR2", "", "", "Kudoa", "genus"),
 ]
+HITS_COLUMNS = ["feature_id", "reads", "hit_rank", "source", "identity", "coverage", "taxon", "rank"]
 
 
 class RowsToExportTests(unittest.TestCase):
@@ -65,37 +66,79 @@ class RowsToExportTests(unittest.TestCase):
 
 class SourceSummaryTests(unittest.TestCase):
 	def _frame(self):
-		return pd.DataFrame(HITS, columns=["feature_id", "reads", "hit_rank", "source", "identity", "coverage", "taxon"])
+		return pd.DataFrame(HITS, columns=HITS_COLUMNS)
 
-	def test_counts_features_and_reads_per_database_ranked(self):
+	def test_counts_hits_and_features_named_below_the_domain_per_database(self):
 		summary = source_assignment_summary(self._frame())
-		# All three assigned 2 features; reads break the tie, then the name.
-		self.assertEqual(list(summary["Database"]), ["NCBI", "SILVA", "PR2"])
 		rows = {row["Database"]: row for row in summary.to_dict("records")}
-		self.assertEqual(rows["SILVA"]["Features assigned"], 2)
-		self.assertEqual(rows["SILVA"]["Reads in those features"], 980)
-		self.assertEqual(rows["NCBI"]["Reads in those features"], 980)
-		self.assertEqual(rows["PR2"]["Reads in those features"], 920)
+		# SILVA hit OTU1 and OTU2 but named only OTU1: OTU2 stayed at the domain.
+		self.assertEqual((rows["SILVA"]["Features with a hit"], rows["SILVA"]["Named below the domain"]), (2, 1))
+		self.assertEqual(rows["SILVA"]["Reads in named features"], 900)
+		self.assertEqual((rows["NCBI"]["Features with a hit"], rows["NCBI"]["Named below the domain"]), (2, 2))
+		self.assertEqual(rows["NCBI"]["Reads in named features"], 980)
+		self.assertEqual(rows["PR2"]["Reads in named features"], 920)
 		self.assertEqual(rows["PR2"]["% of reads"], 92.0)
+		# Sorted by named features, then their reads.
+		self.assertEqual(list(summary["Database"]), ["NCBI", "PR2", "SILVA"])
 
 	def test_a_feature_with_many_hits_from_one_source_counts_once(self):
 		frame = pd.DataFrame(
-			[("OTU1", 10, 1, "NCBI"), ("OTU1", 10, 2, "NCBI"), ("OTU1", 10, 3, "NCBI")],
-			columns=["feature_id", "reads", "hit_rank", "source"],
+			[("OTU1", 10, 1, "NCBI", "species"), ("OTU1", 10, 2, "NCBI", "genus"), ("OTU1", 10, 3, "NCBI", "kingdom")],
+			columns=["feature_id", "reads", "hit_rank", "source", "rank"],
 		)
 		summary = source_assignment_summary(frame)
-		self.assertEqual(summary.iloc[0]["Features assigned"], 1)
-		self.assertEqual(summary.iloc[0]["Reads in those features"], 10)
+		self.assertEqual(summary.iloc[0]["Features with a hit"], 1)
+		self.assertEqual(summary.iloc[0]["Named below the domain"], 1)
+		self.assertEqual(summary.iloc[0]["Reads in named features"], 10)
+
+	def test_domain_only_hits_are_not_named(self):
+		frame = pd.DataFrame(
+			[("OTU1", 10, 1, "SILVA", "kingdom"), ("OTU2", 5, 1, "SILVA", "unassigned")],
+			columns=["feature_id", "reads", "hit_rank", "source", "rank"],
+		)
+		row = source_assignment_summary(frame).iloc[0]
+		self.assertEqual((row["Features with a hit"], row["Named below the domain"]), (2, 0))
+		self.assertEqual(row["Reads in named features"], "")
+
+	def test_without_a_rank_column_every_hit_counts_as_named(self):
+		frame = pd.DataFrame([("OTU1", 7, "NCBI")], columns=["feature_id", "reads", "source"])
+		row = source_assignment_summary(frame).iloc[0]
+		self.assertEqual((row["Features with a hit"], row["Named below the domain"], row["Reads in named features"]), (1, 1, 7))
 
 	def test_without_reads_the_counts_still_build(self):
-		frame = pd.DataFrame([("OTU1", "NCBI")], columns=["feature_id", "source"])
+		frame = pd.DataFrame([("OTU1", "NCBI", "species")], columns=["feature_id", "source", "rank"])
 		summary = source_assignment_summary(frame)
-		self.assertEqual(summary.iloc[0]["Features assigned"], 1)
-		self.assertEqual(summary.iloc[0]["Reads in those features"], "")
+		self.assertEqual(summary.iloc[0]["Named below the domain"], 1)
+		self.assertEqual(summary.iloc[0]["Reads in named features"], "")
 
 	def test_empty_or_shapeless_input_gives_an_empty_table(self):
 		self.assertTrue(source_assignment_summary(None).empty)
 		self.assertTrue(source_assignment_summary(pd.DataFrame({"x": [1]})).empty)
+
+
+class HitsOrderTests(unittest.TestCase):
+	"""The hits table opens with the most-found features first, each feature's hits together."""
+
+	def test_most_found_features_first_and_hits_kept_together(self):
+		from ui.callbacks_databases import _load_hits_frame
+
+		run_dir = Path(tempfile.mkdtemp())
+		self.addCleanup(shutil.rmtree, run_dir, True)
+		(run_dir / "databases" / "otu").mkdir(parents=True)
+		rows = [
+			("OTU2", 80, 2, "NCBI", 98.5, 100.0, "Anisakis simplex", "species"),
+			("OTU10", 5000, 1, "SILVA", "", "", "Gadus", "genus"),
+			("OTU2", 80, 1, "SILVA", "", "", "Eukaryota", "kingdom"),
+			("OTU100", 3, 1, "PR2", "", "", "Kudoa", "genus"),
+			("OTU10", 5000, 2, "PR2", "", "", "Gadus", "genus"),
+		]
+		pd.DataFrame(rows, columns=HITS_COLUMNS).to_csv(run_dir / "databases" / "otu" / "taxonomy_hits.csv", index=False)
+		frame, error = _load_hits_frame({}, run_dir, "otu", 0, 0, 0)
+		self.assertIsNone(error)
+		self.assertEqual(
+			list(zip(frame["feature_id"], frame["hit_rank"])),
+			[("OTU10", 1), ("OTU10", 2), ("OTU2", 1), ("OTU2", 2), ("OTU100", 1)],
+		)
 
 
 class DownloadCallbackTests(unittest.TestCase):
@@ -115,7 +158,7 @@ class DownloadCallbackTests(unittest.TestCase):
 		db_dir.mkdir(parents=True)
 		with (db_dir / "taxonomy_hits.csv").open("w", newline="", encoding="utf-8") as handle:
 			writer = csv.writer(handle)
-			writer.writerow(["feature_id", "reads", "hit_rank", "source", "identity", "coverage", "taxon"])
+			writer.writerow(HITS_COLUMNS)
 			writer.writerows(HITS)
 		self.summary_path = db_dir / "taxonomy_summary.csv"
 		self.summary_path.write_text(

@@ -95,9 +95,19 @@ def _load_hits_frame(db_outputs: dict, run_output_dir, feature_set: str, min_ide
     if top_n and "hit_rank" in frame.columns:
         frame = frame[frame["hit_rank"] <= int(top_n)]
 
-    sort_columns = [c for c in ("feature_id", "ASV_ID", "hit_rank") if c in frame.columns]
-    if sort_columns:
-        frame = frame.sort_values(by=sort_columns)
+    id_col = "feature_id" if "feature_id" in frame.columns else ("ASV_ID" if "ASV_ID" in frame.columns else None)
+    if id_col and "reads" in frame.columns:
+        # Most-found features first, as the supervisors asked; the hits of a feature stay
+        # together and in hit_rank order (reads are the same on all of a feature's rows).
+        # Without a read count the order falls back to feature id, as before.
+        frame = frame.assign(_reads_sort=pd.to_numeric(frame["reads"], errors="coerce").fillna(-1))
+        by = ["_reads_sort", id_col] + (["hit_rank"] if "hit_rank" in frame.columns else [])
+        frame = frame.sort_values(by=by, ascending=[False] + [True] * (len(by) - 1), kind="stable")
+        frame = frame.drop(columns="_reads_sort")
+    else:
+        sort_columns = [c for c in ("feature_id", "ASV_ID", "hit_rank") if c in frame.columns]
+        if sort_columns:
+            frame = frame.sort_values(by=sort_columns)
     return frame, None
 
 
@@ -377,7 +387,12 @@ def register_callbacks(app: Any) -> None:
         per_source_block = []
         if not per_source.empty:
             per_source_block = [
-                html.Div("Features assigned per database", className="mini-note"),
+                html.Div(
+                    "Features per database. \"Named below the domain\" counts the features a database "
+                    "placed at least at phylum: SINTAX returns a domain for nearly every feature, so a "
+                    "hit alone says little.",
+                    className="mini-note",
+                ),
                 data_table(
                     data=per_source.to_dict("records"),
                     columns=[{"name": str(c), "id": str(c)} for c in per_source.columns],
