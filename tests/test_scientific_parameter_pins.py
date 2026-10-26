@@ -86,6 +86,8 @@ class ScientificParameterPins(unittest.TestCase):
         the divergence guard caught a change, and a coordinated edit passed it green.
         DEVLOG 2026-07-24."""
         self.assertEqual(self.config.vsearch_params["sintax_cutoff"], 0.8)
+        # The control that takes effect: the Run Pipeline callback reads this slider.
+        self.assertEqual(_control_value("setup-sintax-cutoff"), 0.8)
         self.assertEqual(_control_value("setup-vsearch-sintax"), 0.8)
 
     def test_pear_min_overlap_is_10(self):

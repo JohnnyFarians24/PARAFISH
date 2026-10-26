@@ -187,8 +187,15 @@ def _analysis_card():
                                     dcc.Input(id="setup-vsearch-maxee", type="number", value=1.0, min=0.1, max=5.0, step=0.1, className="dash-input"),
                                     _param_label("Min length (bp)", "(VSEARCH) Minimum amplicon length to retain after quality filtering. Default: 200."),
                                     dcc.Input(id="setup-vsearch-minlen", type="number", value=200, min=50, max=600, step=10, className="dash-input"),
-                                    _param_label("SINTAX cutoff", "(VSEARCH) Minimum bootstrap confidence to assign taxonomy. 0.8 = 80% confidence required."),
-                                    dcc.Input(id="setup-vsearch-sintax", type="number", value=0.8, min=0.5, max=1.0, step=0.05, className="dash-input"),
+                                    # The cutoff that takes effect is the slider of the Databases card
+                                    # (setup-sintax-cutoff); this copy was never read, so it is hidden.
+                                    html.Div(
+                                        [
+                                            _param_label("SINTAX cutoff", "(VSEARCH) Minimum bootstrap confidence to assign taxonomy. 0.8 = 80% confidence required."),
+                                            dcc.Input(id="setup-vsearch-sintax", type="number", value=0.8, min=0.5, max=1.0, step=0.05, className="dash-input"),
+                                        ],
+                                        style={"display": "none"},
+                                    ),
                                     _param_label(
                                         "Min unique size",
                                         "(VSEARCH) Drop unique sequences seen fewer than this many times before clustering. "
